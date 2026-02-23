@@ -1,2 +1,9 @@
+[run]
+branch = True
+source = src/
+omit =
+    tests/*
+    */_version.py
+
 [report]
-include = iterfiles/*
+show_missing = True

@@ -1,0 +1,31 @@
+[build-system]
+requires = ["setuptools==80.10.1", "setuptools-scm==9.2.2"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "iterfiles"
+dynamic = ["version"]
+description = "Iterate files in a Pythonic way (itertools for files). Supports glob patterns, filters and more."
+requires-python = ">= 3.10"
+license = "MIT"
+license-files = ["LICENSE"]
+authors = [{name = "Alexander Lukanin", email = "alexander.lukanin.13@gmail.com"}]
+readme = "README.rst"
+classifiers = [
+    'Development Status :: 3 - Alpha',
+    'License :: OSI Approved :: MIT License',
+    'Programming Language :: Python',
+]
+
+[project.urls]
+Homepage = "https://github.com/alexanderlukanin13/iterfiles"
+Documentation = "https://iterfiles.readthedocs.io/en/latest/"
+
+[tool.setuptools]
+include-package-data = true
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.setuptools_scm]
+version_file = "src/iterfiles/_version.py"

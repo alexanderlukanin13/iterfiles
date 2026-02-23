@@ -1,7 +1,15 @@
 include HISTORY.rst
 include LICENSE
 include README.rst
+include *.rst
 
-recursive-include tests *
+exclude MANIFEST.in
+exclude .*
+exclude tox.ini
+exclude mypy.ini
+recursive-exclude tests *
+recursive-exclude requirements *
+recursive-exclude docs *
 recursive-exclude * __pycache__
 recursive-exclude * *.py[co]
+recursive-exclude .* *

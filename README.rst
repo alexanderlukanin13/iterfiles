@@ -104,8 +104,6 @@ it does the job well, but how to apply it to a nested directory tree?
 
 That's all. You'll have the same directory structure in output, and same file names, but with ``*.txt`` suffix instead of ``*.pdf``.
 
-Of course, ``convert_files`` can be used for any kind of conversion.
-
 Convert text files
 ------------------
 
@@ -121,13 +119,13 @@ For example, here's a snippet which transforms all files into uppercase:
 Gotchas and Limitations
 -----------------------
 
-* Any unhandled exception raised from your function will break the loop.
+* Any unhandled exception raised from your callback will break the loop.
   Make sure to suppress exceptions which are tolerable.
   Error handling (such as logging) is out of scope of this package.
 
-* Collecting list of files according to glob happens (almost) instantly before any processing takes place.
+* Collecting a list of files according to a glob pattern happens almost instantly before any processing takes place.
   If you add files to directory during long processing, these new files will not be detected on the fly.
-  If you remove files during processing and before they had a chance to be processed, you will see an error.
+  If you remove files during processing and before they've had a chance to be processed, you will see an error.
 
 * Only files are considered. Directories are traversed in a search for files; and during conversion,
   directories are created when necessary; but that's it. You can't do anything custom with directories.

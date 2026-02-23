@@ -4,7 +4,7 @@ from unittest.mock import Mock
 
 import pytest
 
-from iterfiles import (
+from src.iterfiles import (
     iter_files, iter_texts,
     for_each_file, for_each_text,
     convert_files, convert_texts,
