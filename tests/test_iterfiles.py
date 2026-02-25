@@ -4,156 +4,210 @@ from unittest.mock import Mock
 
 import pytest
 
-from src.iterfiles import (
-    iter_files, iter_texts,
-    for_each_file, for_each_text,
-    convert_files, convert_texts,
-    InvalidDirectoryError
-)
+from iterfiles import iterfiles, InvalidPathError
 
 DATA_DIR = Path(__file__).absolute().parent / 'data'
 
 
-def test_for_each_file():
+def test_iteration():
+    """
+    Test simple iteration, sorting, filtering and set_output.
+    No reading/writing here.
+    """
     path = DATA_DIR / 'example1'
 
-    results = []
-    function = Mock(return_value=None, side_effect=lambda x: results.append(x))
-    for_each_file(path, function)  # all files
-    assert set(results) == {
+    # 1. Iterate all files
+    assert list(iterfiles(path)) == [
         path / 'shapes.txt',
-        path / 'aa' / 'colors.dat',  # including this
+        path / 'aa' / 'colors.dat',  # including this non-txt file
         path / 'aa' / 'numbers.txt',
         path / 'aa' / 'pets.txt',
         path / 'bb' / 'names.txt',
         path / 'bb' / 'cc' / 'cars.txt',
-    }
+    ]
 
-    results = []
-    function = Mock(return_value=None, side_effect=lambda x: results.append(x))
-    for_each_file(path, function, pattern='**/*.txt')  # only *.txt
-    assert set(results) == {
+    # 2.1. Iterate only txt files
+    assert list(iterfiles(path, pattern='**/*.txt')) == [
         path / 'shapes.txt',
-        path / 'aa' / 'numbers.txt',
+        path / 'aa' / 'numbers.txt',  # excluding colors.dat
         path / 'aa' / 'pets.txt',
         path / 'bb' / 'names.txt',
         path / 'bb' / 'cc' / 'cars.txt',
-    }
+    ]
 
-    results = []
-    function = Mock(return_value=None, side_effect=lambda x: results.append(x))
-    for_each_file(path, function, pattern='*/*.txt')  # only *.txt in first level folders
-    assert set(results) == {
+    # 2.2. Iterate only txt files in first-level folders
+    assert list(iterfiles(path, pattern='*/*.txt')) == [
         path / 'aa' / 'numbers.txt',
         path / 'aa' / 'pets.txt',
         path / 'bb' / 'names.txt',
-    }
+    ]
+
+    # 3.1. Iterate input + output, without rename
+    # (note: we are not actually writing anything in this test function)
+    output_path = DATA_DIR / 'output'
+    assert list(iterfiles(path, pattern='**/*.txt').set_output(output_path)) == [
+        (path / 'shapes.txt', output_path / 'shapes.txt'),
+        (path / 'aa' / 'numbers.txt', output_path / 'aa' / 'numbers.txt'),  # excluding colors.dat
+        (path / 'aa' / 'pets.txt', output_path / 'aa' / 'pets.txt'),
+        (path / 'bb' / 'names.txt', output_path / 'bb' / 'names.txt'),
+        (path / 'bb' / 'cc' / 'cars.txt', output_path / 'bb' / 'cc' / 'cars.txt'),
+    ]
+
+    # 3.2. Iterate input + output, with rename
+    assert list(iterfiles(path, pattern='**/*.txt').set_output(output_path, lambda x: x.with_suffix('.changed'))) == [
+        (path / 'shapes.txt', output_path / 'shapes.changed'),
+        (path / 'aa' / 'numbers.txt', output_path / 'aa' / 'numbers.changed'),  # excluding colors.dat
+        (path / 'aa' / 'pets.txt', output_path / 'aa' / 'pets.changed'),
+        (path / 'bb' / 'names.txt', output_path / 'bb' / 'names.changed'),
+        (path / 'bb' / 'cc' / 'cars.txt', output_path / 'bb' / 'cc' / 'cars.changed'),
+    ]
+
+    # 4.1. Filter and sort
+    assert list(iterfiles(path).filter(lambda p: p.stem != 'pets').sorted()) == [
+        path / 'aa' / 'colors.dat',  # including this non-txt file
+        path / 'aa' / 'numbers.txt',
+        path / 'bb' / 'cc' / 'cars.txt',
+        path / 'bb' / 'names.txt',
+        path / 'shapes.txt',
+    ]
+
+    # 4.2. Sort and filter (same result as above)
+    assert list(iterfiles(path).sorted().filter(lambda p: p.stem != 'pets')) == [
+        path / 'aa' / 'colors.dat',  # including this non-txt file
+        path / 'aa' / 'numbers.txt',
+        path / 'bb' / 'cc' / 'cars.txt',
+        path / 'bb' / 'names.txt',
+        path / 'shapes.txt',
+    ]
 
 
 def test_for_each_file_directory_error():
-    with pytest.raises(InvalidDirectoryError, match=r'Path contains invalid symbols'):
-        for_each_text('*', Mock())  # all files
+    with pytest.raises(InvalidPathError, match=r'Path contains invalid symbols'):
+        list(iterfiles('*'))  # all files
     with pytest.raises(NotADirectoryError, match=r'Not a directory'):
-        for_each_text(DATA_DIR / 'example1' / 'shapes.txt', Mock())  # all files
+        list(iterfiles(DATA_DIR / 'example1' / 'shapes.txt'))
     with pytest.raises(FileNotFoundError, match=r'Directory not found'):
-        for_each_text(DATA_DIR / 'not_found', Mock())  # all files
+        list(iterfiles(DATA_DIR / 'not_found'))
 
 
-def test_for_each_text():
+def test_foreach():
     path = DATA_DIR / 'example1'
 
     results = []
     function = Mock(return_value=None, side_effect=lambda x: results.append(x))
-    for_each_text(path, function)  # all files
-    assert set(results) == {
-        'Square Circle\nHexagon\n',
-        'Red Green\nBlue\n',  # including this
-        'One Two\nThree\n',
-        'Cat Dog\nParrot\n',
-        'Alice Bob\nCarol\n',
-        'Toyota Honda\nFord\n',
-    }
+    iterfiles(path).foreach(function)  # all files
+
+    assert results == [
+        path / 'shapes.txt',
+        path / 'aa' / 'colors.dat',  # including this non-txt file
+        path / 'aa' / 'numbers.txt',
+        path / 'aa' / 'pets.txt',
+        path / 'bb' / 'names.txt',
+        path / 'bb' / 'cc' / 'cars.txt',
+    ]
+
+def test_text_foreach():
+    path = DATA_DIR / 'example1'
+
+    results = []
+    function = Mock(return_value=None, side_effect=lambda x: results.append(x))
+    iterfiles(path).text().foreach(function)
+
+    assert results == [
+        'Square Circle\nHexagon\n',                     # shapes.txt
+        'Red Green\nBlue\n',         # including this!  # aa/colors.dat
+        'One Two\nThree\n',                             # aa/numbers.txt
+        'Cat Dog\nParrot\n',                            # aa/pets.txt
+        'Alice Bob\nCarol\n',                           # bb/names.txt
+        'Toyota Honda\nFord\n',                         # bb/cc/cars.txt
+    ]
 
 
-def test_convert_files_directory_error():
+def test_binary_foreach():
+    path = DATA_DIR / 'example1'
+
+    results = []
+    function = Mock(return_value=None, side_effect=lambda x: results.append(x))
+    iterfiles(path).binary().foreach(function)
+
+    assert results == [
+        b'Square Circle\nHexagon\n',                     # shapes.txt
+        b'Red Green\nBlue\n',         # including this!  # aa/colors.dat
+        b'One Two\nThree\n',                             # aa/numbers.txt
+        b'Cat Dog\nParrot\n',                            # aa/pets.txt
+        b'Alice Bob\nCarol\n',                           # bb/names.txt
+        b'Toyota Honda\nFord\n',                         # bb/cc/cars.txt
+    ]
+
+
+def test_set_output_directory_error():
+    """
+    Test set_output() errors.
+    set_output *does not* do any disk IO, but it checkes the sanity of output path.
+    """
     source_dir = DATA_DIR / 'example1'
     target_dir = source_dir / 'aa'
-    function = Mock(return_value=None)
-    with pytest.raises(InvalidDirectoryError, match=r'Source must not be a parent of Target \(and vice versa\)'):
-        convert_files(source_dir, target_dir, function)
-    with pytest.raises(InvalidDirectoryError, match=r'Source must not be a parent of Target \(and vice versa\)'):
-        convert_files(target_dir, source_dir, function)
+    with pytest.raises(InvalidPathError, match=r'Source must not be a parent of Target \(and vice versa\)'):
+        iterfiles(source_dir).set_output(target_dir).foreach(lambda x: None)
+    with pytest.raises(InvalidPathError, match=r'Source must not be a parent of Target \(and vice versa\)'):
+        iterfiles(target_dir).set_output(source_dir).foreach(lambda x: None)
 
 
-def test_convert_files(tmpdir):
+def test_set_output_foreach_shutil_copy(tmp_path):
+    path = DATA_DIR / 'example1'
+    iterfiles(path).set_output(tmp_path).foreach(shutil.copy)
+    assert set(iterfiles(tmp_path)) == {
+        tmp_path / 'shapes.txt',
+        tmp_path / 'aa' / 'colors.dat',  # including this
+        tmp_path / 'aa' / 'numbers.txt',
+        tmp_path / 'aa' / 'pets.txt',
+        tmp_path / 'bb' / 'names.txt',
+        tmp_path / 'bb' / 'cc' / 'cars.txt',
+    }
+    assert (tmp_path / 'shapes.txt').read_text() == 'Square Circle\nHexagon\n'
+    assert (tmp_path / 'aa' / 'colors.dat').read_text() == 'Red Green\nBlue\n'
+    assert (tmp_path / 'aa' / 'numbers.txt').read_text() == 'One Two\nThree\n'
+    assert (tmp_path / 'aa' / 'pets.txt').read_text() == 'Cat Dog\nParrot\n'
+    assert (tmp_path / 'bb' / 'names.txt').read_text() == 'Alice Bob\nCarol\n'
+    assert (tmp_path / 'bb' / 'cc' / 'cars.txt').read_text() == 'Toyota Honda\nFord\n'
+
+
+
+def test_set_output_foreach_shutil_copy_txt_only(tmp_path):
     source_dir = DATA_DIR / 'example1'
-    target_dir = Path(tmpdir)
-    convert_files(source_dir, tmpdir, shutil.copy)
-    assert set(iter_files(tmpdir)) == {
-        target_dir / 'shapes.txt',
-        target_dir / 'aa' / 'colors.dat',  # including this
-        target_dir / 'aa' / 'numbers.txt',
-        target_dir / 'aa' / 'pets.txt',
-        target_dir / 'bb' / 'names.txt',
-        target_dir / 'bb' / 'cc' / 'cars.txt',
+    iterfiles(source_dir, pattern='**/*.txt').set_output(tmp_path).foreach(shutil.copy)
+    assert set(iterfiles(tmp_path)) == {
+        tmp_path / 'shapes.txt',
+        tmp_path / 'aa' / 'numbers.txt',
+        tmp_path / 'aa' / 'pets.txt',
+        tmp_path / 'bb' / 'names.txt',
+        tmp_path / 'bb' / 'cc' / 'cars.txt',
     }
-    assert set(iter_texts(tmpdir)) == {
-        'Square Circle\nHexagon\n',
-        'Red Green\nBlue\n',  # including this
-        'One Two\nThree\n',
-        'Cat Dog\nParrot\n',
-        'Alice Bob\nCarol\n',
-        'Toyota Honda\nFord\n',
-    }
+    assert (tmp_path / 'shapes.txt').read_text() == 'Square Circle\nHexagon\n'
+    assert not (tmp_path / 'aa' / 'colors.dat').exists()
+    assert (tmp_path / 'aa' / 'numbers.txt').read_text() == 'One Two\nThree\n'
+    assert (tmp_path / 'aa' / 'pets.txt').read_text() == 'Cat Dog\nParrot\n'
+    assert (tmp_path / 'bb' / 'names.txt').read_text() == 'Alice Bob\nCarol\n'
+    assert (tmp_path / 'bb' / 'cc' / 'cars.txt').read_text() == 'Toyota Honda\nFord\n'
 
 
-def test_convert_files_txt_only(tmpdir):
+def test_set_output_foreach_shutil_copy_rename(tmp_path):
     source_dir = DATA_DIR / 'example1'
-    target_dir = Path(tmpdir)
-    convert_files(source_dir, tmpdir, shutil.copy, pattern='**/*.txt')
-    assert set(iter_files(tmpdir)) == {
-        target_dir / 'shapes.txt',
-        target_dir / 'aa' / 'numbers.txt',
-        target_dir / 'aa' / 'pets.txt',
-        target_dir / 'bb' / 'names.txt',
-        target_dir / 'bb' / 'cc' / 'cars.txt',
+    iterfiles(source_dir, pattern='**/*.dat').set_output(tmp_path, lambda p: p.with_suffix('.foo')).foreach(shutil.copy)
+    assert set(iterfiles(tmp_path, pattern='**/*.foo')) == {
+        tmp_path / 'aa' / 'colors.foo',
     }
-    assert not (target_dir / 'aa' / 'colors.dat').exists()
-    assert set(iter_texts(tmpdir)) == {
-        'Square Circle\nHexagon\n',
-        'One Two\nThree\n',
-        'Cat Dog\nParrot\n',
-        'Alice Bob\nCarol\n',
-        'Toyota Honda\nFord\n',
-    }
+    assert (tmp_path / 'aa' / 'colors.foo').read_text() == 'Red Green\nBlue\n'
 
 
-def test_convert_rename(tmpdir):
-    source_dir = DATA_DIR / 'example1'
-    target_dir = Path(tmpdir)
-    convert_files(source_dir, tmpdir, shutil.copy, pattern='**/*.dat', rename=lambda p: p.with_suffix('.foo'))
-    assert set(iter_files(tmpdir, pattern='**/*.foo')) == {
-        target_dir / 'aa' / 'colors.foo',
-    }
+def test_set_output_write_text(tmp_path):
+    path = DATA_DIR / 'example1'
 
+    def get_first_line(text):
+        return text.split(' ')[0]
 
-def test_convert_rename_str(tmpdir):
-    source_dir = DATA_DIR / 'example1'
-    target_dir = Path(tmpdir)
-    convert_files(source_dir, tmpdir, shutil.copy, pattern='**/*.dat', rename=lambda p: p.with_suffix('.foo').name)
-    assert set(iter_files(tmpdir, pattern='**/*.foo')) == {
-        target_dir / 'aa' / 'colors.foo',
-    }
-
-
-def test_convert_text(tmpdir):
-    source_dir = DATA_DIR / 'example1'
-
-    def convert(source_text):
-        return source_text.split(' ')[0]
-
-    convert_texts(source_dir, tmpdir, convert, pattern='**/*.txt', encoding='utf8')
-    assert set(iter_texts(tmpdir)) == {
+    iterfiles(path, pattern='**/*.txt').text().set_output(tmp_path).write_text(get_first_line)
+    assert set(iterfiles(tmp_path, pattern='**/*.txt').text()) == {
         'Square',
         'One',
         'Cat',

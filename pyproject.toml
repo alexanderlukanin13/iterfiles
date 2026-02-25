@@ -13,7 +13,6 @@ authors = [{name = "Alexander Lukanin", email = "alexander.lukanin.13@gmail.com"
 readme = "README.rst"
 classifiers = [
     'Development Status :: 3 - Alpha',
-    'License :: OSI Approved :: MIT License',
     'Programming Language :: Python',
 ]
 

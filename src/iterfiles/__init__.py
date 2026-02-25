@@ -1,8 +1,12 @@
 from __future__ import annotations
 import os
+import os.path
+import collections.abc
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Callable, Iterable, Tuple, Union, Any
+from typing import Callable, Iterable, Tuple, Union, Any, TypeVar
+
+from ._version import __version__, __version_tuple__
 
 
 # Function to change name (or extension) of a target file
@@ -13,7 +17,7 @@ TKeyFuncOrNone = Callable[[Path], Any] | None
 TPath = str | Path
 
 
-class InvalidDirectoryError(Exception):
+class InvalidPathError(Exception):
     """Source or target directory argument is not acceptable."""
     pass
 
@@ -25,7 +29,7 @@ def _ensure_dir(dir_path: Union[str, Path], must_exist=True) -> Path:
     dir_path = Path(dir_path)
     s = str(dir_path)
     if '*' in s or '?' in s:
-        raise InvalidDirectoryError(f'Path contains invalid symbols (did you mean to use "pattern" argument instead?): {dir_path}')
+        raise InvalidPathError(f'Path contains invalid symbols (did you mean to use "pattern" argument instead?): {dir_path}')
     if dir_path.exists():
         if not dir_path.is_dir():
             raise NotADirectoryError(f'Not a directory: {dir_path}')
@@ -94,7 +98,7 @@ def iter_source_target_files(source_dir: Union[str, Path], target_dir: Union[str
     target_dir = _ensure_dir(target_dir, must_exist=False)
     # Make sure caller is not messing up the directory structure.
     if target_dir in source_dir.parents or source_dir in target_dir.parents:
-        raise InvalidDirectoryError('Source must not be a parent of Target (and vice versa)')
+        raise InvalidPathError('Source must not be a parent of Target (and vice versa)')
 
     parents = set()  # optimize os.makedirs for "thousands of files in a folder" scenario
 
@@ -136,6 +140,8 @@ def convert_texts(source_dir: Union[str, Path], target_dir: Union[str, Path], fu
         with open(source_file_path, 'r', encoding=encoding, errors=errors, newline=newline) as file:
             target_file_path.write_text(function(file.read()), encoding=output_encoding, errors=output_errors, newline=output_newline)
 
+_T = TypeVar('_T')
+
 @dataclass
 class _iterfiles_config:
     dir_path: Path
@@ -147,17 +153,30 @@ class _iterfiles_config:
     in_newline: str | None = None
     target_dir: str | None = None
     rename: TRenameFuncOrNone = None
+    map_function: Callable[[_T], _T] | None = None
 
 
 def _default_sort_key(p: Path) -> str:
     return str(p.absolute())
 
 
-class _iterfiles:  # noqa
+def dirs_first(p: Path) -> str:
+    """Sort in alphabetic order, but directories always come first."""
+    # To avoid expensive actual checking whether every parent is a directory,
+    # we use a dirty hack: replace every '/' with '/\x00', EXCEPT the last one,
+    # which is followed by file name. We only work with files here so this is OK.
+    s = str(p.absolute())
+    count = s.count(os.sep)
+    if count < 2:
+        return s
+    return s.replace(os.sep, os.sep + '\x00', count - 1)
+
+
+class _iterfiles_base(collections.abc.Iterable):  # noqa
 
     _config: _iterfiles_config
 
-    def __init__(self, other: _iterfiles):
+    def __init__(self, other: _iterfiles_base):
         self._config = other._config
 
     def __iter__(self) -> Iterable[Path]:
@@ -171,18 +190,14 @@ class _iterfiles:  # noqa
         return iter(files)
 
 
-class _iterfiles_unmapped(_iterfiles):  # noqa
-
-    def map(self, target_dir: Union[str, Path], rename: TRenameFunc | None = None):
-        return _iterfiles_map(self)
-
-
-class iterfiles(_iterfiles_unmapped):  # noqa
+class iterfiles(_iterfiles_base):  # noqa
 
     def __init__(self, dir_path: Path | str, pattern: str = '**/*'):  # noqa
+        if not isinstance(pattern, str):
+            raise TypeError(f'pattern: expected glob string, got {pattern!r}')
         self._config = _iterfiles_config(dir_path=dir_path, pattern=pattern)
 
-    def sort(self, key: Callable[[Path], Any] | None = None) -> iterfiles:
+    def sorted(self, key: Callable[[Path], Any] | None = None) -> iterfiles:
         self._config.sort_key = key or _default_sort_key
         return self
 
@@ -190,7 +205,7 @@ class iterfiles(_iterfiles_unmapped):  # noqa
         self._config.predicate = predicate
         return self
 
-    def texts(self, encoding: str | None = 'utf-8', errors: str | None = None, newline: str | None = None) -> _iterfiles_text:
+    def text(self, encoding: str | None = 'utf-8', errors: str | None = None, newline: str | None = None) -> _iterfiles_text:
         self._config._in_encoding = encoding
         self._config._in_errors = errors
         self._config._in_newline = newline
@@ -199,40 +214,80 @@ class iterfiles(_iterfiles_unmapped):  # noqa
     def binary(self):
         return _iterfiles_binary(self)
 
+    def foreach(self, function: Callable[[Path], Any]) -> iterfiles:
+        for path in self:
+            function(path)
+        return self
 
-class _iterfiles_text(_iterfiles_unmapped):  # noqa
+    def set_output(self, target_dir: Union[str, Path], rename: TRenameFunc | None = None) -> _iterfiles_map:
+        self._config.target_dir = target_dir
+        self._config.rename = rename
+        return _iterfiles_map(self)
 
-    def __iter__(self):
+
+class _iterfiles_text(_iterfiles_base):  # noqa
+
+    def __iter__(self) -> Iterable[str]:
         encoding = self._config.in_encoding
         errors = self._config.in_errors
         newline = self._config.in_newline
+        map_function = self._config.map_function
         for in_path in super().__iter__():
             with open(in_path, encoding=encoding, errors=errors, newline=newline) as file:
-                yield file.read()
+                text = file.read()
+                if map_function is not None:
+                    text = map_function(text)
+                yield text
 
-    def map(self, target_dir: Union[str, Path], rename: TRenameFunc | None = None) -> _iterfiles_text_map:
+    def map(self, function: Callable[[str], str]) -> _iterfiles_text:
+        self._config.map_function = function
+        return self
+
+    def set_output(self, target_dir: Union[str, Path], rename: TRenameFunc | None = None) -> _iterfiles_text_map:
+        self._config.target_dir = target_dir
+        self._config.rename = rename
         return _iterfiles_text_map(self)
 
-    def foreach(self, function: Callable[[str], Any]) -> Iterable[Any]:
-        raise NotImplementedError
+    def foreach(self, function: Callable[[str], Any]) -> _iterfiles_text:
+        for text in self:
+            function(text)
+        return self
 
-class _iterfiles_binary(_iterfiles_unmapped):  # noqa
 
-    def map(self, target_dir: Union[str, Path], rename: TRenameFunc | None = None) -> _iterfiles_binary_map:
+class _iterfiles_binary(_iterfiles_base):  # noqa
+
+    def __iter__(self) -> Iterable[bytes]:
+        map_function = self._config.map_function
+        for in_path in super().__iter__():
+            with open(in_path, mode='rb') as file:
+                binary = file.read()
+                if map_function is not None:
+                    binary = map_function(binary)
+                yield binary
+
+    def map(self, function: Callable[[bytes], bytes]) -> _iterfiles_binary:
+        self._config.map_function = function
+        return self
+
+    def set_output(self, target_dir: Union[str, Path], rename: TRenameFunc | None = None) -> _iterfiles_binary_map:
+        self._config.target_dir = target_dir
+        self._config.rename = rename
         return _iterfiles_binary_map(self)
 
-    def foreach(self, function: Callable[[bytes], Any]) -> Iterable[Any]:
-        raise NotImplementedError
+    def foreach(self, function: Callable[[str], Any]) -> _iterfiles_binary:
+        for binary in self:
+            function(binary)
+        return self
 
 
-class _iterfiles_map(_iterfiles):  # noqa
+class _iterfiles_map(_iterfiles_base):  # noqa
 
     def __iter__(self) -> Iterable[tuple[Path, Path]]:
         source_dir = _ensure_dir(self._config.dir_path)
         target_dir = _ensure_dir(self._config.target_dir, must_exist=False)
         # Make sure caller is not messing up the directory structure.
         if target_dir in source_dir.parents or source_dir in target_dir.parents:
-            raise InvalidDirectoryError('Source must not be a parent of Target (and vice versa)')
+            raise InvalidPathError('Source must not be a parent of Target (and vice versa)')
 
         parents = set()  # optimize os.makedirs for "thousands of files in a folder" scenario
 
@@ -247,8 +302,10 @@ class _iterfiles_map(_iterfiles):  # noqa
                 parents.add(target_file_path.parent)
             yield source_file_path, target_file_path
 
-    def foreach(self, function: Callable[[Path, Path], Any]) -> Iterable[Any]:
-        raise NotImplementedError
+    def foreach(self, function: Callable[[Path, Path], Any]) -> _iterfiles_map:
+        for in_path, out_path in self:
+            function(in_path, out_path)
+        return self
 
     def text(self) -> _iterfiles_text_map:
         return _iterfiles_text_map(self)
@@ -277,6 +334,10 @@ class _iterfiles_text_map(_iterfiles_map):  # noqa
             with open(in_path, encoding=encoding, errors=errors, newline=newline) as file:
                 yield file.read(), out_path
 
+    def map(self, function: Callable[[str], str]) -> _iterfiles_text_map:
+        self._config.map_function = function
+        return self
+
     def foreach(self, function: Callable[[str, Path], Any]) -> Iterable[Any]:
         for text_in, path_out in self:
             yield function(text_in, path_out)
@@ -292,12 +353,16 @@ class _iterfiles_text_map(_iterfiles_map):  # noqa
                 out_file.write(function(in_text))
 
 
-class _iterfiles_binary_map(_iterfiles_map):  # noqa
+class _iterfiles_binary_map(_iterfiles_map, _iterfiles_binary):  # noqa
 
     def __iter__(self) -> Iterable[tuple[bytes, Path]]:
         for in_path, out_path in super().__iter__():
             with open(in_path, 'rb') as file:
                 yield file.read(), out_path
+
+    def map(self, function: Callable[[bytes], bytes]) -> _iterfiles_binary_map:
+        self._config.map_function = function
+        return self
 
     def foreach(self, function: Callable[[bytes, Path], Any]) -> Iterable[Any]:
         for bytes_in, path_out in self:

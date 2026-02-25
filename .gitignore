@@ -21,7 +21,7 @@ parts/
 sdist/
 var/
 wheels/
-*.egg-info/
+src/*.egg-info/
 .installed.cfg
 *.egg
 
@@ -245,3 +245,6 @@ cython_debug/
 
 # PyCharm
 .idea
+
+# setuptools-scm
+src/iterfiles/_version.py
