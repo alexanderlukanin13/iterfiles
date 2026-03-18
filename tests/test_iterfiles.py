@@ -1,3 +1,4 @@
+import os
 import shutil
 from pathlib import Path
 from unittest.mock import Mock
@@ -79,6 +80,14 @@ def test_iteration():
         path / 'bb' / 'names.txt',
         path / 'shapes.txt',
     ]
+
+    # 4.3. Double filter
+    assert set(iterfiles(path).filter(lambda p: p.stem != 'pets').filter(lambda p: p.stem != 'numbers')) == {
+        path / 'aa' / 'colors.dat',  # including this non-txt file
+        path / 'bb' / 'cc' / 'cars.txt',
+        path / 'bb' / 'names.txt',
+        path / 'shapes.txt',
+    }
 
 
 def test_for_each_file_directory_error():
@@ -213,4 +222,53 @@ def test_set_output_write_text(tmp_path):
         'Cat',
         'Alice',
         'Toyota',
+    }
+
+
+def test_set_output_write_text_2(tmp_path):
+    """Same as above, just different order of text() and set_output()"""
+    path = DATA_DIR / 'example1'
+
+    def get_first_line(text):
+        return text.split(' ')[0]
+
+    iterfiles(path, pattern='**/*.txt').set_output(tmp_path).text().write_text(get_first_line)
+    assert set(iterfiles(tmp_path, pattern='**/*.txt').text()) == {
+        'Square',
+        'One',
+        'Cat',
+        'Alice',
+        'Toyota',
+    }
+
+
+def test_set_output_write_binary(tmp_path):
+    path = DATA_DIR / 'example1'
+
+    def first_six_bytes(binary: bytes):
+        return binary[:6]
+
+    iterfiles(path, pattern='**/*.txt').binary().set_output(tmp_path).write_binary(first_six_bytes)
+    assert set(iterfiles(tmp_path, pattern='**/*.txt').binary()) == {
+        b'Square',                     # shapes.txt
+        b'One Tw',                    # aa/numbers.txt
+        b'Cat Do',                    # aa/pets.txt
+        b'Alice ',                     # bb/names.txt
+        b'Toyota',                     # bb/cc/cars.txt
+    }
+
+
+def test_set_output_write_binary_2(tmp_path):
+    path = DATA_DIR / 'example1'
+
+    def first_six_bytes(binary: bytes):
+        return binary[:6]
+
+    iterfiles(path, pattern='**/*.txt').set_output(tmp_path).binary().write_binary(first_six_bytes)
+    assert set(iterfiles(tmp_path, pattern='**/*.txt').binary()) == {
+        b'Square',                     # shapes.txt
+        b'One Tw',                    # aa/numbers.txt
+        b'Cat Do',                    # aa/pets.txt
+        b'Alice ',                     # bb/names.txt
+        b'Toyota',                     # bb/cc/cars.txt
     }
