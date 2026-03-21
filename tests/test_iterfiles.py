@@ -1,4 +1,3 @@
-import os
 import shutil
 from pathlib import Path
 from unittest.mock import Mock
@@ -7,7 +6,7 @@ import pytest
 
 from iterfiles import iterfiles, InvalidPathError
 
-DATA_DIR = Path(__file__).absolute().parent / 'data'
+from . import DATA_DIR
 
 
 def test_iteration():
@@ -242,6 +241,23 @@ def test_set_output_write_text_2(tmp_path):
     }
 
 
+def test_set_output_write_text_3_map(tmp_path):
+    """Same as above, but with map()"""
+    path = DATA_DIR / 'example1'
+
+    def get_first_line(text):
+        return text.split(' ')[0]
+
+    iterfiles(path, pattern='**/*.txt').set_output(tmp_path).text().map(get_first_line).write_text()
+    assert set(iterfiles(tmp_path, pattern='**/*.txt').text()) == {
+        'Square',
+        'One',
+        'Cat',
+        'Alice',
+        'Toyota',
+    }
+
+
 def test_set_output_write_binary(tmp_path):
     path = DATA_DIR / 'example1'
 
@@ -272,3 +288,43 @@ def test_set_output_write_binary_2(tmp_path):
         b'Alice ',                     # bb/names.txt
         b'Toyota',                     # bb/cc/cars.txt
     }
+
+
+def test_set_output_write_binary_3_map(tmp_path):
+    path = DATA_DIR / 'example1'
+
+    def first_six_bytes(binary: bytes):
+        return binary[:6]
+
+    iterfiles(path, pattern='**/*.txt').set_output(tmp_path).binary().map(first_six_bytes).write_binary()
+    assert set(iterfiles(tmp_path, pattern='**/*.txt').binary()) == {
+        b'Square',                     # shapes.txt
+        b'One Tw',                    # aa/numbers.txt
+        b'Cat Do',                    # aa/pets.txt
+        b'Alice ',                     # bb/names.txt
+        b'Toyota',                     # bb/cc/cars.txt
+    }
+
+
+def test_filter_by_filename():
+    path = DATA_DIR / 'example1'
+
+    def names_and_pets(x: Path):
+        return x.stem in ('pets', 'names')
+
+    assert iterfiles(DATA_DIR / 'example1', pattern='**/*.txt').filter(names_and_pets).list() == [
+        path / 'aa' / 'pets.txt',
+        path / 'bb' / 'names.txt'
+    ]
+
+
+def test_filter_by_filename_2(tmp_path):
+    path = DATA_DIR / 'example1'
+
+    def names_and_pets(x: Path):
+        return x.stem in ('pets', 'names')
+
+    assert iterfiles(DATA_DIR / 'example1', pattern='**/*.txt').filter(names_and_pets).set_output(tmp_path).list() == [
+        (path / 'aa' / 'pets.txt', tmp_path / 'aa' / 'pets.txt'),
+        (path / 'bb' / 'names.txt', tmp_path / 'bb' / 'names.txt')
+    ]
