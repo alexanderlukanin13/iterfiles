@@ -11,7 +11,7 @@ from pathlib import Path
 from typing import Callable, Iterable, Any, TypeVar, Sequence, Self
 
 from . import stat as _s
-from .stat import Path as _Path, StatExpr
+from .stat import IterfilesPath, IterfilesPathSym, StatExpr
 from ._version import __version__, __version_tuple__
 
 
@@ -91,9 +91,9 @@ class _iterfiles_base:  # noqa
         files: Iterator[Path] = (x for x in dir_path.glob(self._config.pattern) if x.is_file())
         # Any filtering?
         if self._config.predicates:
-            # If filter_stat was called, convert to custom _Path with stat caching
+            # If filter_stat was called, convert to custom IterfilesPath with stat caching
             if self._config.filter_stat:
-                files = (_Path(x) for x in files)
+                files = (IterfilesPath(x) for x in files)
             predicates = self._config.predicates
             if len(predicates) == 1:
                 p = predicates[0]
@@ -141,31 +141,31 @@ class iterfiles(_iterfiles_base):  # noqa
                     st_mode__match: str | None = None,
                     st_uid: int | None = None,
                     st_uid__in: Sequence[int] | None = None,
-                    st_gid__eq: int | None = None,
+                    st_gid: int | None = None,
                     st_gid__in: Sequence[int] | None = None,
                     st_size: int | None = None,
                     st_size__lt: int | None = None,
-                    st_size__lte: int | None = None,
+                    st_size__le: int | None = None,
                     st_size__gt: int | None = None,
-                    st_size__gte: int | None = None,
+                    st_size__ge: int | None = None,
                     st_size__range: tuple[int, int] | None = None,
                     st_atime: TimeT | None = None,
                     st_atime__lt: TimeT | None = None,
-                    st_atime__lte: TimeT | None = None,
+                    st_atime__le: TimeT | None = None,
                     st_atime__gt: TimeT | None = None,
-                    st_atime__gte: TimeT | None = None,
+                    st_atime__ge: TimeT | None = None,
                     st_atime__range: TimeTupleT | None = None,
                     st_mtime: TimeT | None = None,
                     st_mtime__lt: TimeT | None = None,
-                    st_mtime__lte: TimeT | None = None,
+                    st_mtime__le: TimeT | None = None,
                     st_mtime__gt: TimeT | None = None,
-                    st_mtime__gte: TimeT | None = None,
+                    st_mtime__ge: TimeT | None = None,
                     st_mtime__range: TimeTupleT | None = None,
                     st_ctime: TimeT | None = None,
                     st_ctime__lt: TimeT | None = None,
-                    st_ctime__lte: TimeT | None = None,
+                    st_ctime__le: TimeT | None = None,
                     st_ctime__gt: TimeT | None = None,
-                    st_ctime__gte: TimeT | None = None,
+                    st_ctime__ge: TimeT | None = None,
                     st_ctime__range: TimeTupleT | None = None,
                     ) -> iterfiles:
         exs: list[StatExpr] = list(expressions)
@@ -181,8 +181,8 @@ class iterfiles(_iterfiles_base):  # noqa
         if st_uid__in is not None:
             exs.append(_s.st_uid.in_(st_uid__in))
 
-        if st_gid__eq is not None:
-            exs.append(_s.st_uid == st_gid__eq)
+        if st_gid is not None:
+            exs.append(_s.st_uid == st_gid)
         if st_gid__in is not None:
             exs.append(_s.st_uid.in_(st_gid__in))
 
@@ -190,12 +190,12 @@ class iterfiles(_iterfiles_base):  # noqa
             exs.append(_s.st_size == st_size)
         if st_size__lt is not None:
             exs.append(_s.st_size < st_size__lt)
-        if st_size__lte is not None:
-            exs.append(_s.st_size <= st_size__lte)
+        if st_size__le is not None:
+            exs.append(_s.st_size <= st_size__le)
         if st_size__gt is not None:
             exs.append(_s.st_size > st_size__gt)
-        if st_size__gte is not None:
-            exs.append(_s.st_size >= st_size__gte)
+        if st_size__ge is not None:
+            exs.append(_s.st_size >= st_size__ge)
         if st_size__range is not None:
             exs.append(_s.st_size >= st_size__range[0])
             exs.append(_s.st_size <= st_size__range[1])
@@ -204,12 +204,12 @@ class iterfiles(_iterfiles_base):  # noqa
             exs.append(_s.st_atime == st_atime)
         if st_atime__lt is not None:
             exs.append(_s.st_atime < st_atime__lt)
-        if st_atime__lte is not None:
-            exs.append(_s.st_atime <= st_atime__lte)
+        if st_atime__le is not None:
+            exs.append(_s.st_atime <= st_atime__le)
         if st_atime__gt is not None:
             exs.append(_s.st_atime > st_atime__gt)
-        if st_atime__gte is not None:
-            exs.append(_s.st_atime >= st_atime__gte)
+        if st_atime__ge is not None:
+            exs.append(_s.st_atime >= st_atime__ge)
         if st_atime__range is not None:
             exs.append(_s.st_atime >= st_atime__range[0])
             exs.append(_s.st_atime <= st_atime__range[1])
@@ -218,12 +218,12 @@ class iterfiles(_iterfiles_base):  # noqa
             exs.append(_s.st_mtime == st_mtime)
         if st_mtime__lt is not None:
             exs.append(_s.st_mtime < st_mtime__lt)
-        if st_mtime__lte is not None:
-            exs.append(_s.st_mtime <= st_mtime__lte)
+        if st_mtime__le is not None:
+            exs.append(_s.st_mtime <= st_mtime__le)
         if st_mtime__gt is not None:
             exs.append(_s.st_mtime > st_mtime__gt)
-        if st_mtime__gte is not None:
-            exs.append(_s.st_mtime >= st_mtime__gte)
+        if st_mtime__ge is not None:
+            exs.append(_s.st_mtime >= st_mtime__ge)
         if st_mtime__range is not None:
             exs.append(_s.st_mtime >= st_mtime__range[0])
             exs.append(_s.st_mtime <= st_mtime__range[1])
@@ -232,12 +232,12 @@ class iterfiles(_iterfiles_base):  # noqa
             exs.append(_s.st_ctime == st_ctime)
         if st_ctime__lt is not None:
             exs.append(_s.st_ctime < st_ctime__lt)
-        if st_ctime__lte is not None:
-            exs.append(_s.st_ctime <= st_ctime__lte)
+        if st_ctime__le is not None:
+            exs.append(_s.st_ctime <= st_ctime__le)
         if st_ctime__gt is not None:
             exs.append(_s.st_ctime > st_ctime__gt)
-        if st_ctime__gte is not None:
-            exs.append(_s.st_ctime >= st_ctime__gte)
+        if st_ctime__ge is not None:
+            exs.append(_s.st_ctime >= st_ctime__ge)
         if st_ctime__range is not None:
             exs.append(_s.st_ctime >= st_ctime__range[0])
             exs.append(_s.st_ctime <= st_ctime__range[1])
@@ -256,39 +256,39 @@ class iterfiles(_iterfiles_base):  # noqa
         return self
 
     def exclude_stat(self, *expressions: StatExpr,
-                    op: str = 'and',
-                    st_mode: int | str | None = None,
-                    st_mode__in: int | str | None = None,
-                    st_mode__match: str | None = None,
-                    st_uid: int | None = None,
-                    st_uid__in: Sequence[int] | None = None,
-                    st_gid__eq: int | None = None,
-                    st_gid__in: Sequence[int] | None = None,
-                    st_size: int | None = None,
-                    st_size__lt: int | None = None,
-                    st_size__lte: int | None = None,
-                    st_size__gt: int | None = None,
-                    st_size__gte: int | None = None,
-                    st_size__range: tuple[int, int] | None = None,
-                    st_atime: TimeT | None = None,
-                    st_atime__lt: TimeT | None = None,
-                    st_atime__lte: TimeT | None = None,
-                    st_atime__gt: TimeT | None = None,
-                    st_atime__gte: TimeT | None = None,
-                    st_atime__range: TimeTupleT | None = None,
-                    st_mtime: TimeT | None = None,
-                    st_mtime__lt: TimeT | None = None,
-                    st_mtime__lte: TimeT | None = None,
-                    st_mtime__gt: TimeT | None = None,
-                    st_mtime__gte: TimeT | None = None,
-                    st_mtime__range: TimeTupleT | None = None,
-                    st_ctime: TimeT | None = None,
-                    st_ctime__lt: TimeT | None = None,
-                    st_ctime__lte: TimeT | None = None,
-                    st_ctime__gt: TimeT | None = None,
-                    st_ctime__gte: TimeT | None = None,
-                    st_ctime__range: TimeTupleT | None = None,
-                    ) -> iterfiles:
+                     op: str = 'and',
+                     st_mode: int | str | None = None,
+                     st_mode__in: int | str | None = None,
+                     st_mode__match: str | None = None,
+                     st_uid: int | None = None,
+                     st_uid__in: Sequence[int] | None = None,
+                     st_gid__eq: int | None = None,
+                     st_gid__in: Sequence[int] | None = None,
+                     st_size: int | None = None,
+                     st_size__lt: int | None = None,
+                     st_size__le: int | None = None,
+                     st_size__gt: int | None = None,
+                     st_size__ge: int | None = None,
+                     st_size__range: tuple[int, int] | None = None,
+                     st_atime: TimeT | None = None,
+                     st_atime__lt: TimeT | None = None,
+                     st_atime__le: TimeT | None = None,
+                     st_atime__gt: TimeT | None = None,
+                     st_atime__ge: TimeT | None = None,
+                     st_atime__range: TimeTupleT | None = None,
+                     st_mtime: TimeT | None = None,
+                     st_mtime__lt: TimeT | None = None,
+                     st_mtime__le: TimeT | None = None,
+                     st_mtime__gt: TimeT | None = None,
+                     st_mtime__ge: TimeT | None = None,
+                     st_mtime__range: TimeTupleT | None = None,
+                     st_ctime: TimeT | None = None,
+                     st_ctime__lt: TimeT | None = None,
+                     st_ctime__le: TimeT | None = None,
+                     st_ctime__gt: TimeT | None = None,
+                     st_ctime__ge: TimeT | None = None,
+                     st_ctime__range: TimeTupleT | None = None,
+                     ) -> iterfiles:
         return self.filter_stat(*expressions,
                                 op=op,
                                 exclude=True,
@@ -297,31 +297,31 @@ class iterfiles(_iterfiles_base):  # noqa
                                 st_mode__match=st_mode__match,
                                 st_uid=st_uid,
                                 st_uid__in=st_uid__in,
-                                st_gid__eq=st_gid__eq,
+                                st_gid=st_gid__eq,
                                 st_gid__in=st_gid__in,
                                 st_size=st_size,
                                 st_size__lt=st_size__lt,
-                                st_size__lte=st_size__lte,
+                                st_size__le=st_size__le,
                                 st_size__gt=st_size__gt,
-                                st_size__gte=st_size__gte,
+                                st_size__ge=st_size__ge,
                                 st_size__range=st_size__range,
                                 st_atime=st_atime,
                                 st_atime__lt=st_atime__lt,
-                                st_atime__lte=st_atime__lte,
+                                st_atime__le=st_atime__le,
                                 st_atime__gt=st_atime__gt,
-                                st_atime__gte=st_atime__gte,
+                                st_atime__ge=st_atime__ge,
                                 st_atime__range=st_atime__range,
                                 st_mtime=st_mtime,
                                 st_mtime__lt=st_mtime__lt,
-                                st_mtime__lte=st_mtime__lte,
+                                st_mtime__le=st_mtime__le,
                                 st_mtime__gt=st_mtime__gt,
-                                st_mtime__gte=st_mtime__gte,
+                                st_mtime__ge=st_mtime__ge,
                                 st_mtime__range=st_mtime__range,
                                 st_ctime=st_ctime,
                                 st_ctime__lt=st_ctime__lt,
-                                st_ctime__lte=st_ctime__lte,
+                                st_ctime__le=st_ctime__le,
                                 st_ctime__gt=st_ctime__gt,
-                                st_ctime__gte=st_ctime__gte,
+                                st_ctime__ge=st_ctime__ge,
                                 st_ctime__range=st_ctime__range)
 
     def text(self, encoding: str | None = 'utf-8', errors: str | None = None, newline: str | None = None) -> _iterfiles_text:
@@ -344,6 +344,9 @@ class iterfiles(_iterfiles_base):  # noqa
 
     def list(self) -> list[Path]:
         return list(self)
+
+    def set(self) -> set[Path]:
+        return set(self)
 
 
 @dataclass

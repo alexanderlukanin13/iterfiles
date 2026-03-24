@@ -9,8 +9,12 @@ import pathlib
 from functools import cached_property
 from typing import Callable
 
+__all__ = ['st_mode', 'st_uid', 'st_gid', 'st_size', 'st_atime', 'st_mtime', 'st_ctime']
 
-class Path(pathlib.Path):
+import pendulum
+
+
+class IterfilesPath(pathlib.Path):
     """Custom Path subclass with stat caching."""
 
     @cached_property
@@ -44,6 +48,13 @@ class Path(pathlib.Path):
     @property
     def st_ctime(self) -> float:
         return self._stat.st_ctime
+
+
+class IterfilesPathSym(IterfilesPath):
+
+    @cached_property
+    def _stat(self) -> os.stat_result:
+        return super().stat(follow_symlinks=True)
 
 
 class StatExpr:
@@ -83,9 +94,10 @@ class StatExpr:
                 Return(value=self.ast_expr)
             ]
         )])
-        print(ast.dump(module, indent=4))
-        exec(compile(module, '<ast>', 'exec'))
-        return f  # type: ignore  # noqa
+        ast.fix_missing_locations(module)
+        d = {}
+        exec(compile(module, '<filter-stat>', 'exec'), d)
+        return d['f']  # type: ignore  # noqa
 
 
 class _StatParam:
@@ -118,31 +130,31 @@ class _StatParam:
             if not isinstance(value, self._TYPES):
                 raise TypeError(f'Unexpected type in {self.attr}: {type(value)} (expected collection of {"/".join(x.__qualname__ for x in self._TYPES)})')
 
-    def __eq__(self, value) -> StatExpr:  # type: ignore
+    def __eq__(self, value: int) -> StatExpr:  # type: ignore
         self._check_type(value)
         return self._compare(Eq, value)
 
-    def __ne__(self, value) -> StatExpr:  # type: ignore
+    def __ne__(self, value: int) -> StatExpr:  # type: ignore
         self._check_type(value)
         return self._compare(NotEq, value)
 
-    def __lt__(self, value) -> StatExpr:
+    def __lt__(self, value: int) -> StatExpr:
         self._check_type(value)
         return self._compare(Lt, value)
 
-    def __le__(self, value) -> StatExpr:
+    def __le__(self, value: int) -> StatExpr:
         self._check_type(value)
         return self._compare(LtE, value)
 
-    def __gt__(self, value) -> StatExpr:
+    def __gt__(self, value: int) -> StatExpr:
         self._check_type(value)
         return self._compare(Gt, value)
 
-    def __ge__(self, value) -> StatExpr:
+    def __ge__(self, value: int) -> StatExpr:
         self._check_type(value)
-        return self._compare(Gt, value)
+        return self._compare(GtE, value)
 
-    def in_(self, values):
+    def in_(self, values: list[int]):
         if not hasattr(values, '__contains__'):
             raise TypeError(f'Unexpected type for {self.attr}: {type(values)} (expected collection of {"/".join(x.__qualname__ for x in self._TYPES)})')
         self._check_types(values)
@@ -160,14 +172,70 @@ class _StatParamSize(_StatParam):
 class _StatParamTime(_StatParam):
     _TYPES = (int, float, datetime, date, str)
 
-    def __lt__(self, value: int | float | datetime | date | str):
-        if isinstance(value, datetime):
-            raise NotImplementedError
-        elif isinstance(value, date):
-            raise NotImplementedError
-        elif not isinstance(value, int):
-            raise TypeError(f'Cannot compare {self.attr} to {type(value)}, expecting int/date/datetime')
+    def _value_to_timestamp(self, value: int | float | datetime | date | str, max_time=False) -> int | float:
+        if isinstance(value, (int, float)):
+            return value
+        elif isinstance(value, datetime):
+            if value.tzinfo is None:
+                value = value.replace(tzinfo=pendulum.local_timezone())
+            return value.timestamp()
+        if isinstance(value, str):
+            match value:
+                case 'today':
+                    value = pendulum.today()
+                case 'yesterday':
+                    value = pendulum.yesterday()
+                case _:
+                    raise TypeError(f'Unexpected string format for {self.attr}: {value!r}')
+        if isinstance(value, date):
+            value = pendulum.datetime(value.year, value.month, value.day,
+                                      tz=pendulum.local_timezone())
+        if not isinstance(value, datetime):
+            raise TypeError(f'Unexpected type for {self.attr}: {value!r} '
+                            f'(expected {"/".join(x.__qualname__ for x in self._TYPES)})')
+        # At this point it's a date represented as datetime
+        if max_time:
+            return value.combine(value, datetime.max.time()).timestamp()
+        else:
+            return value.timestamp()
+        pendulum.parse
+
+    def _parse_str(self, value: str) -> (datetime, bool):
+        match value:
+            case 'today':
+                value = pendulum.today(), True
+            case 'yesterday':
+                value = pendulum.yesterday(), True
+            case _:
+                raise TypeError(f'Unexpected string format for {self.attr}: {value!r}')
+
+    def __eq__(self, value: int | float | datetime | date | str) -> StatExpr:
+        self._check_type(value)
+        return self._compare(Eq, value)
+
+    def __ne__(self, value: int | float | datetime | date | str) -> StatExpr:
+        self._check_type(value)
+        return self._compare(NotEq, value)
+
+    def __lt__(self, value: int | float | datetime | date | str) -> StatExpr:
+        self._check_type(value)
+        value = self._value_to_timestamp(value)
         return self._compare(Lt, value)
+
+    def __le__(self, value: int | float | datetime | date | str) -> StatExpr:
+        self._check_type(value)
+        value = self._value_to_timestamp(value, max_time=True)
+        return self._compare(LtE, value)
+
+    def __gt__(self, value: int | float | datetime | date | str) -> StatExpr:
+        self._check_type(value)
+        value = self._value_to_timestamp(value, max_time=True)
+        return self._compare(Gt, value)
+
+    def __ge__(self, value: int | float | datetime | date | str) -> StatExpr:
+        self._check_type(value)
+        value = self._value_to_timestamp(value)
+        return self._compare(GtE, value)
 
 
 class _StatParamMode(_StatParam):
