@@ -12,6 +12,9 @@ from typing import Callable
 __all__ = ['st_mode', 'st_uid', 'st_gid', 'st_size', 'st_atime', 'st_mtime', 'st_ctime']
 
 import pendulum
+from pendulum import Interval, DateTime
+
+from iterfiles.pendulum import DateWithUnit, parse_exact, DateDay, DateWeek, DateMonth, DateYear
 
 
 class IterfilesPath(pathlib.Path):
@@ -121,6 +124,42 @@ class _StatParam:
                 comparators=[Constant(value=value)])
         )
 
+    def _in_range(self, start: int | float, end: int | float) -> StatExpr:
+        assert start < end, "INTERNAL ERROR: Invalid range: {value!r}, you shouldn't see this, please contact the maintainer"
+        return StatExpr(
+            Compare(
+                left=Constant(value=start),
+                ops=[LtE(), LtE()],
+                comparators=[
+                    Attribute(
+                        value=Attribute(
+                            value=Name(id='x', ctx=Load()),
+                            attr='_stat',
+                            ctx=Load()),
+                        attr=self.attr,
+                        ctx=Load()),
+                    Constant(value=end)])
+        )
+
+    def _not_in_range(self, start: int | float, end: int | float) -> StatExpr:
+        assert start < end, "INTERNAL ERROR: Invalid range: {value!r}, you shouldn't see this, please contact the maintainer"
+        return StatExpr(
+            UnaryOp(
+                op=Not(),
+                operand=Compare(
+                    left=Constant(value=start),
+                    ops=[LtE(), LtE()],
+                    comparators=[
+                        Attribute(
+                            value=Attribute(
+                                value=Name(id='x', ctx=Load()),
+                                attr='_stat',
+                                ctx=Load()),
+                            attr=self.attr,
+                            ctx=Load()),
+                        Constant(value=end)]))
+        )
+
     def _check_type(self, value):
         if not isinstance(value, self._TYPES):
             raise TypeError(f'Unexpected type for {self.attr}: {type(value)} (expected {"/".join(x.__qualname__ for x in self._TYPES)})')
@@ -169,36 +208,77 @@ class _StatParamSize(_StatParam):
     _TYPES = (int, str)
 
 
+def _parse_str(value: str) -> DateTime | DateWithUnit | Interval[DateTime] | Interval[DateWithUnit]:
+    value = value.strip()
+    if '@' in value:
+        value, tz = (x.strip() for x in value.split('@', 1))
+        tzinfo = pendulum.timezone(tz)
+    else:
+        tzinfo = pendulum.local_timezone()
+    if value == 'today':
+        return DateDay.from_datetime(pendulum.today(tzinfo))
+    elif value == 'yesterday':
+        return DateDay.from_datetime(pendulum.yesterday(tzinfo))
+    elif value == 'this week':
+        return DateWeek.from_datetime(pendulum.now(tzinfo))
+    elif value == 'this month':
+        return DateMonth.from_datetime(pendulum.now(tzinfo))
+    elif value == 'this year':
+        return DateYear.from_datetime(pendulum.now(tzinfo))
+    else:
+        return parse_exact(value)
+
+
+def _process_value(value: int | float | datetime | date | str
+                   ) -> int | float | DateWithUnit | Interval[DateWithUnit] | Interval[DateTime]:
+    if isinstance(value, (int, float)):
+        return value
+    elif isinstance(value, datetime):
+        if value.tzinfo is None:
+            value = value.replace(tzinfo=pendulum.local_timezone())
+        return value.timestamp()
+    if isinstance(value, str):
+        return _parse_str(value)
+    if isinstance(value, date):
+        value = pendulum.datetime(value.year, value.month, value.day, tz=pendulum.local_timezone())
+    if not isinstance(value, datetime):
+        raise TypeError(f'Unexpected type for timestamp: {value!r} (must be int/date/datetime/interval)')
+
+
+def _as_timestamp_or_interval(value: int | float | datetime | date | str) -> int | float | tuple[float, float]:
+    value = _process_value(value)
+    if isinstance(value, DateWithUnit):
+        value = value.as_interval()
+    if isinstance(value, Interval):
+        if isinstance(value.start, DateTime):
+            return value.start.timestamp(), value.end.timestamp()
+        else:
+            return value.start.as_interval().start.timestamp(), value.end.as_interval().end.timestamp()
+    return value
+
+
+def _lower_bound(value: int | float | datetime | date | str) -> int | float | DateWithUnit:
+    value = _process_value(value)
+    if isinstance(value, Interval):
+        if isinstance(value.start, DateTime):
+            return value.start.timestamp()
+        else:
+            return value.start
+    return value
+
+
+def _upper_bound(value: int | float | datetime | date | str) -> int | float | DateWithUnit:
+    value = _process_value(value)
+    if isinstance(value, Interval):
+        if isinstance(value.end, DateTime):
+            return value.end.timestamp()
+        else:
+            return value.end
+    return value
+
+
 class _StatParamTime(_StatParam):
     _TYPES = (int, float, datetime, date, str)
-
-    def _value_to_timestamp(self, value: int | float | datetime | date | str, max_time=False) -> int | float:
-        if isinstance(value, (int, float)):
-            return value
-        elif isinstance(value, datetime):
-            if value.tzinfo is None:
-                value = value.replace(tzinfo=pendulum.local_timezone())
-            return value.timestamp()
-        if isinstance(value, str):
-            match value:
-                case 'today':
-                    value = pendulum.today()
-                case 'yesterday':
-                    value = pendulum.yesterday()
-                case _:
-                    raise TypeError(f'Unexpected string format for {self.attr}: {value!r}')
-        if isinstance(value, date):
-            value = pendulum.datetime(value.year, value.month, value.day,
-                                      tz=pendulum.local_timezone())
-        if not isinstance(value, datetime):
-            raise TypeError(f'Unexpected type for {self.attr}: {value!r} '
-                            f'(expected {"/".join(x.__qualname__ for x in self._TYPES)})')
-        # At this point it's a date represented as datetime
-        if max_time:
-            return value.combine(value, datetime.max.time()).timestamp()
-        else:
-            return value.timestamp()
-        pendulum.parse
 
     def _parse_str(self, value: str) -> (datetime, bool):
         match value:
@@ -211,30 +291,46 @@ class _StatParamTime(_StatParam):
 
     def __eq__(self, value: int | float | datetime | date | str) -> StatExpr:
         self._check_type(value)
-        return self._compare(Eq, value)
+        value = _as_timestamp_or_interval(value)
+        if isinstance(value, tuple):
+            return self._in_range(value[0], value[1])
+        else:
+            return self._compare(Eq, value)
 
     def __ne__(self, value: int | float | datetime | date | str) -> StatExpr:
         self._check_type(value)
-        return self._compare(NotEq, value)
+        value = _as_timestamp_or_interval(value)
+        if isinstance(value, tuple):
+            return self._not_in_range(value[0], value[1])
+        else:
+            return self._compare(NotEq, value)
 
     def __lt__(self, value: int | float | datetime | date | str) -> StatExpr:
         self._check_type(value)
-        value = self._value_to_timestamp(value)
+        value = _lower_bound(value)
+        if isinstance(value, DateWithUnit):
+            value = value.as_interval().start.timestamp()
         return self._compare(Lt, value)
 
     def __le__(self, value: int | float | datetime | date | str) -> StatExpr:
         self._check_type(value)
-        value = self._value_to_timestamp(value, max_time=True)
+        value = _lower_bound(value)
+        if isinstance(value, DateWithUnit):
+            value = value.as_interval().end.timestamp()
         return self._compare(LtE, value)
 
     def __gt__(self, value: int | float | datetime | date | str) -> StatExpr:
         self._check_type(value)
-        value = self._value_to_timestamp(value, max_time=True)
+        value = _upper_bound(value)
+        if isinstance(value, DateWithUnit):
+            value = value.as_interval().end.timestamp()
         return self._compare(Gt, value)
 
     def __ge__(self, value: int | float | datetime | date | str) -> StatExpr:
         self._check_type(value)
-        value = self._value_to_timestamp(value)
+        value = _upper_bound(value)
+        if isinstance(value, DateWithUnit):
+            value = value.as_interval().start.timestamp()
         return self._compare(GtE, value)
 
 

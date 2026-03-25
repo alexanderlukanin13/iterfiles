@@ -1,91 +1,113 @@
+import re
+
 import pendulum
+from pendulum.parsing.exceptions import ParserError
 import pytest
 from pendulum import Interval, Date, DateTime, UTC
 
-from iterfiles.pendulum import parse, DateDay, DateWeek, DateMonth, DateYear
+from iterfiles.pendulum import parse_exact, parse_humanized, DateDay, DateWeek, DateMonth, DateYear
 
 
-def test_date_classes():
-    tzinfo = pendulum.now(tz='local').timezone
+def test_date_to_interval():
+    tzinfo = pendulum.now(tz='US/Alaska').timezone
+
+    # Day
     assert DateDay(2026, 3, 24, tzinfo=tzinfo).as_interval() == Interval(
         DateTime(2026, 3, 24, tzinfo=tzinfo),
         DateTime(2026, 3, 24, 23, 59, 59, 999999, tzinfo=tzinfo))
 
+    # Week
     assert DateWeek(2026, 3, 23, tzinfo=tzinfo).as_interval() == Interval(
         DateTime(2026, 3, 23, tzinfo=tzinfo),
         DateTime(2026, 3, 29, 23, 59, 59, 999999, tzinfo=tzinfo))
+    assert DateWeek(2026, 3, 25, tzinfo=tzinfo).as_interval() == Interval(
+        DateTime(2026, 3, 23, tzinfo=tzinfo),
+        DateTime(2026, 3, 29, 23, 59, 59, 999999, tzinfo=tzinfo))
 
+    # Month
     assert DateMonth(2026, 3, 1, tzinfo=tzinfo).as_interval() == Interval(
         DateTime(2026, 3, 1, tzinfo=tzinfo),
         DateTime(2026, 3, 31, 23, 59, 59, 999999, tzinfo=tzinfo))
+    assert DateMonth(2026, 3, 15, tzinfo=tzinfo).as_interval() == Interval(
+        DateTime(2026, 3, 1, tzinfo=tzinfo),
+        DateTime(2026, 3, 31, 23, 59, 59, 999999, tzinfo=tzinfo))
 
+    # Year
     assert DateYear(2026, 1, 1, tzinfo=tzinfo).as_interval() == Interval(
+        DateTime(2026, 1, 1, tzinfo=tzinfo),
+        DateTime(2026, 12, 31, 23, 59, 59, 999999, tzinfo=tzinfo))
+    assert DateYear(2026, 6, 15, tzinfo=tzinfo).as_interval() == Interval(
         DateTime(2026, 1, 1, tzinfo=tzinfo),
         DateTime(2026, 12, 31, 23, 59, 59, 999999, tzinfo=tzinfo))
 
 
-def test_parse():
-    tzinfo = pendulum.now(tz='local').timezone
+def test_parse_exact():
+    local = pendulum.local_timezone()
+    paris = pendulum.timezone('Europe/Paris')
+
+    parse = parse_exact
 
     # DateTime (just a few)
-    assert parse('20161001T14') == DateTime(2016, 10, 1, 14, tzinfo=tzinfo)
+    assert parse('20161001T14') == DateTime(2016, 10, 1, 14, tzinfo=local)
 
     # Day
     assert parse('2012-05-03').as_interval() == Interval(
-        DateTime(2012, 5, 3, tzinfo=tzinfo),
-        DateTime(2012, 5, 3, 23, 59, 59, 999999, tzinfo=tzinfo)
+        DateTime(2012, 5, 3, tzinfo=local),
+        DateTime(2012, 5, 3, 23, 59, 59, 999999, tzinfo=local)
     )
     assert parse('2012-007').as_interval() == Interval(
-        DateTime(2012, 1, 7, tzinfo=tzinfo),
-        DateTime(2012, 1, 7, 23, 59, 59, 999999, tzinfo=tzinfo)
+        DateTime(2012, 1, 7, tzinfo=local),
+        DateTime(2012, 1, 7, 23, 59, 59, 999999, tzinfo=local)
     )
     assert parse('2012007').as_interval() == Interval(
-        DateTime(2012, 1, 7, tzinfo=tzinfo),
-        DateTime(2012, 1, 7, 23, 59, 59, 999999, tzinfo=tzinfo)
+        DateTime(2012, 1, 7, tzinfo=local),
+        DateTime(2012, 1, 7, 23, 59, 59, 999999, tzinfo=local)
     )
 
     # Day (with Week number)
     assert parse('2012W055').as_interval() == Interval(
-        DateTime(2012, 2, 3, tzinfo=tzinfo),
-        DateTime(2012, 2, 3, 23, 59, 59, 999999, tzinfo=tzinfo)
+        DateTime(2012, 2, 3, tzinfo=local),
+        DateTime(2012, 2, 3, 23, 59, 59, 999999, tzinfo=local)
     )
 
     # Week
     assert parse('2012-W05').as_interval() == Interval(
-        DateTime(2012, 1, 30, tzinfo=tzinfo),
-        DateTime(2012, 2, 5, 23, 59, 59, 999999, tzinfo=tzinfo)
+        DateTime(2012, 1, 30, tzinfo=local),
+        DateTime(2012, 2, 5, 23, 59, 59, 999999, tzinfo=local)
     )
     assert parse('2012W05').as_interval() == Interval(
-        DateTime(2012, 1, 30, tzinfo=tzinfo),
-        DateTime(2012, 2, 5, 23, 59, 59, 999999, tzinfo=tzinfo)
+        DateTime(2012, 1, 30, tzinfo=local),
+        DateTime(2012, 2, 5, 23, 59, 59, 999999, tzinfo=local)
     )
 
     # Month
     assert parse('2012-05').as_interval() == Interval(
-        DateTime(2012, 5, 1, tzinfo=tzinfo),
-        DateTime(2012, 5, 31, 23, 59, 59, 999999, tzinfo=tzinfo)
+        DateTime(2012, 5, 1, tzinfo=local),
+        DateTime(2012, 5, 31, 23, 59, 59, 999999, tzinfo=local)
     )
 
     # Year
     assert parse('2012').as_interval() == Interval(
-        DateTime(2012, 1, 1, tzinfo=tzinfo),
-        DateTime(2012, 12, 31, 23, 59, 59, 999999, tzinfo=tzinfo)
+        DateTime(2012, 1, 1, tzinfo=local),
+        DateTime(2012, 12, 31, 23, 59, 59, 999999, tzinfo=local)
     )
 
-    # Time
-    with pytest.raises(ValueError):
-        parse('12:30')
-    with pytest.raises(ValueError):
-        parse('12:04:23')
-    with pytest.raises(ValueError):
+    # start/end
+    dt = parse('2012')
+    assert dt.start == DateDay(2012, 1, 1, tzinfo=local)
+
+    # Ambiguous (date? time?)
+    with pytest.raises(ParserError):
         parse('120423')
-    with pytest.raises(ValueError):
-        parse('12:04:23.45')
 
     # Date Interval
     assert parse('2007-03-01/2008-05-11', tz='local') == Interval(
-        DateDay(2007, 3, 1, tzinfo=tzinfo),
-        DateDay(2008, 5, 11,tzinfo=tzinfo)
+        DateDay(2007, 3, 1, tzinfo=local),
+        DateDay(2008, 5, 11,tzinfo=local)
+    )
+    assert parse('2007-03-01/2008-05-11', tz='Europe/Paris') == Interval(
+        DateDay(2007, 3, 1, tzinfo=paris),
+        DateDay(2008, 5, 11, tzinfo=paris)
     )
 
     # DateTime Interval
@@ -94,6 +116,62 @@ def test_parse():
         DateTime(2008, 5, 11, 15, 30, 0, tzinfo=UTC)
     )
     assert parse('2007-03-01 13:00/2008-05-11 15:30') == Interval(
-        DateTime(2007, 3, 1, 13, 0, 0, tzinfo=tzinfo),
-        DateTime(2008, 5, 11, 15, 30, 0, tzinfo=tzinfo)
+        DateTime(2007, 3, 1, 13, 0, 0, tzinfo=local),
+        DateTime(2008, 5, 11, 15, 30, 0, tzinfo=local)
     )
+
+
+def test_parse_humanized():
+    paris = pendulum.timezone('Europe/Paris')
+
+    parse = parse_humanized
+
+    # Day
+    assert parse('2012-05-03 @ Europe/Paris').as_interval() == Interval(
+        DateTime(2012, 5, 3, tzinfo=paris),
+        DateTime(2012, 5, 3, 23, 59, 59, 999999, tzinfo=paris)
+    )
+
+    # Week
+    assert parse('2012W05 @ Europe/Paris').as_interval() == Interval(
+        DateTime(2012, 1, 30, tzinfo=paris),
+        DateTime(2012, 2, 5, 23, 59, 59, 999999, tzinfo=paris)
+    )
+
+    # Month
+    assert parse('2012-05 @ Europe/Paris').as_interval() == Interval(
+        DateTime(2012, 5, 1, tzinfo=paris),
+        DateTime(2012, 5, 31, 23, 59, 59, 999999, tzinfo=paris)
+    )
+
+    # Year
+    assert parse('2012 @ Europe/Paris').as_interval() == Interval(
+        DateTime(2012, 1, 1, tzinfo=paris),
+        DateTime(2012, 12, 31, 23, 59, 59, 999999, tzinfo=paris)
+    )
+
+
+def test_parse_humanized_time():
+    today = pendulum.today('local')
+    tzinfo_05 = pendulum.parse('2026-03-26T12:30+05:00').tzinfo
+    paris = pendulum.timezone('Europe/Paris')
+    local = pendulum.local_timezone()
+
+    parse = parse_humanized
+
+    # Time only
+    assert parse('12:30') == today.replace(hour=12, minute=30, second=0, microsecond=0, tzinfo=local)
+    assert parse('12:30:23') == today.replace(hour=12, minute=30, second=23, microsecond=0, tzinfo=local)
+    assert parse('12:30:23.456') == today.replace(hour=12, minute=30, second=23, microsecond=456000, tzinfo=local)  # sic!
+    assert parse('12:30:23.456789') == today.replace(hour=12, minute=30, second=23, microsecond=456789, tzinfo=local)
+
+    # Time + Timezone
+    assert parse('12:30+05:00') == today.replace(hour=12, minute=30, second=0, microsecond=0, tzinfo=tzinfo_05)
+    assert parse('12:30Z') == today.replace(hour=12, minute=30, second=0, microsecond=0, tzinfo=UTC)
+
+    assert parse('12:30 @ Europe/Paris') == today.replace(hour=12, minute=30, second=0, microsecond=0, tzinfo=paris)
+
+    with pytest.raises(ValueError, match=re.escape("Two conflicting ways to represent timezone: '12:30+05:00 @ Europe/Paris'")):
+        parse('12:30+05:00 @ Europe/Paris')
+    with pytest.raises(ValueError, match=re.escape("Two conflicting ways to represent timezone: '12:30Z @ Europe/Paris'")):
+        parse('12:30Z @ Europe/Paris')
