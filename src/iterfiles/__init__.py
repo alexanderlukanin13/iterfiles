@@ -150,18 +150,21 @@ class iterfiles(_iterfiles_base):  # noqa
                     st_size__ge: int | None = None,
                     st_size__range: tuple[int, int] | None = None,
                     st_atime: TimeT | None = None,
+                    st_atime__ne: TimeT | None = None,
                     st_atime__lt: TimeT | None = None,
                     st_atime__le: TimeT | None = None,
                     st_atime__gt: TimeT | None = None,
                     st_atime__ge: TimeT | None = None,
                     st_atime__range: TimeTupleT | None = None,
                     st_mtime: TimeT | None = None,
+                    st_mtime__ne: TimeT | None = None,
                     st_mtime__lt: TimeT | None = None,
                     st_mtime__le: TimeT | None = None,
                     st_mtime__gt: TimeT | None = None,
                     st_mtime__ge: TimeT | None = None,
                     st_mtime__range: TimeTupleT | None = None,
                     st_ctime: TimeT | None = None,
+                    st_ctime__ne: TimeT | None = None,
                     st_ctime__lt: TimeT | None = None,
                     st_ctime__le: TimeT | None = None,
                     st_ctime__gt: TimeT | None = None,
@@ -202,6 +205,8 @@ class iterfiles(_iterfiles_base):  # noqa
 
         if st_atime is not None:
             exs.append(_s.st_atime == st_atime)
+        if st_atime__ne is not None:
+            exs.append(_s.st_atime != st_atime__ne)
         if st_atime__lt is not None:
             exs.append(_s.st_atime < st_atime__lt)
         if st_atime__le is not None:
@@ -216,6 +221,8 @@ class iterfiles(_iterfiles_base):  # noqa
 
         if st_mtime is not None:
             exs.append(_s.st_mtime == st_mtime)
+        if st_mtime__ne is not None:
+            exs.append(_s.st_mtime != st_mtime__ne)
         if st_mtime__lt is not None:
             exs.append(_s.st_mtime < st_mtime__lt)
         if st_mtime__le is not None:
@@ -230,6 +237,8 @@ class iterfiles(_iterfiles_base):  # noqa
 
         if st_ctime is not None:
             exs.append(_s.st_ctime == st_ctime)
+        if st_ctime__ne is not None:
+            exs.append(_s.st_ctime != st_ctime__ne)
         if st_ctime__lt is not None:
             exs.append(_s.st_ctime < st_ctime__lt)
         if st_ctime__le is not None:

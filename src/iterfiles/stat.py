@@ -14,7 +14,7 @@ __all__ = ['st_mode', 'st_uid', 'st_gid', 'st_size', 'st_atime', 'st_mtime', 'st
 import pendulum
 from pendulum import Interval, DateTime
 
-from iterfiles.pendulum import DateWithUnit, parse_exact, DateDay, DateWeek, DateMonth, DateYear
+from iterfiles.pendulum import DateWithUnit, DateDay, parse_humanized
 
 
 class IterfilesPath(pathlib.Path):
@@ -208,90 +208,12 @@ class _StatParamSize(_StatParam):
     _TYPES = (int, str)
 
 
-def _parse_str(value: str) -> DateTime | DateWithUnit | Interval[DateTime] | Interval[DateWithUnit]:
-    value = value.strip()
-    if '@' in value:
-        value, tz = (x.strip() for x in value.split('@', 1))
-        tzinfo = pendulum.timezone(tz)
-    else:
-        tzinfo = pendulum.local_timezone()
-    if value == 'today':
-        return DateDay.from_datetime(pendulum.today(tzinfo))
-    elif value == 'yesterday':
-        return DateDay.from_datetime(pendulum.yesterday(tzinfo))
-    elif value == 'this week':
-        return DateWeek.from_datetime(pendulum.now(tzinfo))
-    elif value == 'this month':
-        return DateMonth.from_datetime(pendulum.now(tzinfo))
-    elif value == 'this year':
-        return DateYear.from_datetime(pendulum.now(tzinfo))
-    else:
-        return parse_exact(value)
-
-
-def _process_value(value: int | float | datetime | date | str
-                   ) -> int | float | DateWithUnit | Interval[DateWithUnit] | Interval[DateTime]:
-    if isinstance(value, (int, float)):
-        return value
-    elif isinstance(value, datetime):
-        if value.tzinfo is None:
-            value = value.replace(tzinfo=pendulum.local_timezone())
-        return value.timestamp()
-    if isinstance(value, str):
-        return _parse_str(value)
-    if isinstance(value, date):
-        value = pendulum.datetime(value.year, value.month, value.day, tz=pendulum.local_timezone())
-    if not isinstance(value, datetime):
-        raise TypeError(f'Unexpected type for timestamp: {value!r} (must be int/date/datetime/interval)')
-
-
-def _as_timestamp_or_interval(value: int | float | datetime | date | str) -> int | float | tuple[float, float]:
-    value = _process_value(value)
-    if isinstance(value, DateWithUnit):
-        value = value.as_interval()
-    if isinstance(value, Interval):
-        if isinstance(value.start, DateTime):
-            return value.start.timestamp(), value.end.timestamp()
-        else:
-            return value.start.as_interval().start.timestamp(), value.end.as_interval().end.timestamp()
-    return value
-
-
-def _lower_bound(value: int | float | datetime | date | str) -> int | float | DateWithUnit:
-    value = _process_value(value)
-    if isinstance(value, Interval):
-        if isinstance(value.start, DateTime):
-            return value.start.timestamp()
-        else:
-            return value.start
-    return value
-
-
-def _upper_bound(value: int | float | datetime | date | str) -> int | float | DateWithUnit:
-    value = _process_value(value)
-    if isinstance(value, Interval):
-        if isinstance(value.end, DateTime):
-            return value.end.timestamp()
-        else:
-            return value.end
-    return value
-
-
 class _StatParamTime(_StatParam):
     _TYPES = (int, float, datetime, date, str)
 
-    def _parse_str(self, value: str) -> (datetime, bool):
-        match value:
-            case 'today':
-                value = pendulum.today(), True
-            case 'yesterday':
-                value = pendulum.yesterday(), True
-            case _:
-                raise TypeError(f'Unexpected string format for {self.attr}: {value!r}')
-
     def __eq__(self, value: int | float | datetime | date | str) -> StatExpr:
         self._check_type(value)
-        value = _as_timestamp_or_interval(value)
+        value = _process_value(value)
         if isinstance(value, tuple):
             return self._in_range(value[0], value[1])
         else:
@@ -299,7 +221,7 @@ class _StatParamTime(_StatParam):
 
     def __ne__(self, value: int | float | datetime | date | str) -> StatExpr:
         self._check_type(value)
-        value = _as_timestamp_or_interval(value)
+        value = _process_value(value)
         if isinstance(value, tuple):
             return self._not_in_range(value[0], value[1])
         else:
@@ -307,31 +229,71 @@ class _StatParamTime(_StatParam):
 
     def __lt__(self, value: int | float | datetime | date | str) -> StatExpr:
         self._check_type(value)
-        value = _lower_bound(value)
-        if isinstance(value, DateWithUnit):
-            value = value.as_interval().start.timestamp()
-        return self._compare(Lt, value)
+        return self._compare(Lt, _lower_bound(value))
 
     def __le__(self, value: int | float | datetime | date | str) -> StatExpr:
         self._check_type(value)
-        value = _lower_bound(value)
-        if isinstance(value, DateWithUnit):
-            value = value.as_interval().end.timestamp()
-        return self._compare(LtE, value)
+        return self._compare(LtE, _upper_bound(value))
 
     def __gt__(self, value: int | float | datetime | date | str) -> StatExpr:
         self._check_type(value)
-        value = _upper_bound(value)
-        if isinstance(value, DateWithUnit):
-            value = value.as_interval().end.timestamp()
-        return self._compare(Gt, value)
+        return self._compare(Gt, _upper_bound(value))
 
     def __ge__(self, value: int | float | datetime | date | str) -> StatExpr:
         self._check_type(value)
-        value = _upper_bound(value)
-        if isinstance(value, DateWithUnit):
-            value = value.as_interval().start.timestamp()
-        return self._compare(GtE, value)
+        return self._compare(GtE, _lower_bound(value))
+
+
+def _process_value(value: int | float | datetime | date | str
+                   ) -> int | float | tuple[float, float] | DateWithUnit:
+    """
+    Process user-defined value given to StatExpr (e.g. st_mtime < '2026-03-25'),
+    parse if str, and normalize to timestamp/DateWithUnit, or interval of those.
+    """
+    # 1.a. int/float timestamp: return as is
+    if isinstance(value, (int, float)):
+        return value
+    # 1.b. str: parse and continue to other data types
+    elif isinstance(value, str):
+        value = parse_humanized(value)
+        # NOTE: no return, fall through to next if block
+
+    # 2.a. datetime: add local timezone if naive, and return as timestamp
+    if isinstance(value, datetime):
+        if value.tzinfo is None:
+            value = value.replace(tzinfo=pendulum.local_timezone())
+        return value.timestamp()
+    # 2.b. DateWithUnit: - return as a pair of timestamps
+    elif isinstance(value, DateWithUnit):
+        value = value.as_interval()
+        return value.start.timestamp(), value.end.timestamp()
+    # 2.c. naive date (user-supplied): add local timezone and return as timestamp
+    elif isinstance(value, date):
+        value = DateDay(value.year, value.month, value.day, tzinfo=pendulum.local_timezone()).as_interval()
+        return value.start.timestamp(), value.end.timestamp()
+    # 2.d. Interval: return as a pair of timestamps
+    elif isinstance(value, Interval):
+        if isinstance(value.start, DateTime):
+            return value.start.timestamp(), value.end.timestamp()
+        else:
+            return value.start.as_interval().start.timestamp(), value.end.as_interval().end.timestamp()
+    raise TypeError(f'Unexpected type for timestamp: {value!r} (must be int/float/str/date/datetime)')
+
+
+def _lower_bound(value: int | float | datetime | date | str) -> int | float:
+    value = _process_value(value)
+    if isinstance(value, tuple):
+        value = value[0]
+    assert isinstance(value, (int, float))
+    return value
+
+
+def _upper_bound(value: int | float | datetime | date | str) -> int | float:
+    value = _process_value(value)
+    if isinstance(value, tuple):
+        value = value[1]
+    assert isinstance(value, (int, float))
+    return value
 
 
 class _StatParamMode(_StatParam):
@@ -339,6 +301,7 @@ class _StatParamMode(_StatParam):
 
     def match(self, pattern: int | str | re.Pattern) -> StatExpr:
         raise NotImplementedError
+
 
 
 st_uid = _StatParamID('st_uid')

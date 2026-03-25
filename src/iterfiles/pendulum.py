@@ -28,7 +28,7 @@ class DateWithUnit(pendulum.Date, abc.ABC):
     @staticmethod
     @abc.abstractmethod
     def from_datetime(dt: DateTime) -> 'DateWithUnit':
-        raise NotImplementedError
+        raise NotImplementedError  # pragma: no cover
 
     def as_interval(self) -> pendulum.Interval[pendulum.DateTime]:
         # In normal conventional usage, self = self.start_of()
@@ -132,7 +132,6 @@ def parse_humanized(value: str) -> DateWithUnit | DateTime | Interval[DateDay] |
     elif s == 'this year':
         return DateYear.from_datetime(pendulum.now(tzinfo))
     res = parse_exact(s, tz=tz)
-    print(f'res = {res!r}')
     if isinstance(res, Time):
         # Workaround for '12:30+05:00' - pendulum (as of 3.2.0) silently drops the timezone info
         #
