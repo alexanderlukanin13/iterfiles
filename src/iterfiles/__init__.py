@@ -11,7 +11,7 @@ from pathlib import Path
 from typing import Callable, Iterable, Any, TypeVar, Sequence, Self
 
 from . import stat as _s
-from .stat import IterfilesPath, IterfilesPathSym, StatExpr
+from .stat import Path as IPath, PathSym, StatExpr
 from ._version import __version__, __version_tuple__
 
 
@@ -28,11 +28,11 @@ class InvalidPathError(Exception):
     pass
 
 
-def _ensure_dir(dir_path: str | Path, must_exist=True) -> Path:
+def _ensure_dir(dir_path: str | Path, must_exist=True) -> IPath:
     """
     Convert str to Path. Check if directory exists and contains no invalid symbols.
     """
-    dir_path = Path(dir_path)
+    dir_path = IPath(dir_path)  # use IPath here for easier testing (it doesn't affect performance)
     s = str(dir_path)
     if '*' in s or '?' in s:
         raise InvalidPathError(f'Path contains invalid symbols (did you mean to use "pattern" argument instead?): {dir_path}')
@@ -88,12 +88,9 @@ class _iterfiles_base:  # noqa
     def _iter_paths(self) -> Iterator[Path]:
         dir_path = _ensure_dir(self._config.dir_path)
         # Use glob, and return only files
-        files: Iterator[Path] = (x for x in dir_path.glob(self._config.pattern) if x.is_file())
+        files: Iterator[IPath] = (IPath(x) for x in dir_path.glob(self._config.pattern) if x.is_file())
         # Any filtering?
         if self._config.predicates:
-            # If filter_stat was called, convert to custom IterfilesPath with stat caching
-            if self._config.filter_stat:
-                files = (IterfilesPath(x) for x in files)
             predicates = self._config.predicates
             if len(predicates) == 1:
                 p = predicates[0]

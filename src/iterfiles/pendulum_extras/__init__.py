@@ -1,76 +1,39 @@
 # This module contains extra functionality built on top of `pendulum` package
-import abc
+import functools
 import re
 import time
-from datetime import timedelta, tzinfo as tzinfo_t
+from datetime import tzinfo as tzinfo_t, date, datetime
 
 import pendulum
-from pendulum import Date, Time, DateTime, Duration, Interval, Timezone, FixedTimezone, UTC
+from pendulum import Date, Time, DateTime, Duration, Interval, FixedTimezone, UTC
 
+from .dates import *
 
-class DateWithUnit(pendulum.Date, abc.ABC):
+_TYPES = {
+    'day': DateDay,
+    'week': DateWeek,
+    'month': DateMonth,
+    'year': DateYear,
+}
 
-    def __new__(cls, year: int, month: int, day: int, tzinfo: tzinfo_t = pendulum.UTC):
-        instance = super().__new__(cls, year, month, day)
-        instance.tzinfo = tzinfo
-        return instance
-
-    @property
-    def start(self) -> 'DateDay':
-        d = self.start_of(self.unit)
-        return DateDay(d.year, d.month, d.day, d.tzinfo)
-
-    @property
-    def end(self) -> 'DateDay':
-        d = self.end_of(self.unit)
-        return DateDay(d.year, d.month, d.day, d.tzinfo)
-
-    @staticmethod
-    @abc.abstractmethod
-    def from_datetime(dt: DateTime) -> 'DateWithUnit':
-        raise NotImplementedError  # pragma: no cover
-
-    def as_interval(self) -> pendulum.Interval[pendulum.DateTime]:
-        # In normal conventional usage, self = self.start_of()
-        # However, nothing prevents user from instantiating DateWithUnit in the middle of unit (week, month, etc.)
-        # Anyway, as_interval() should still return correct Interval(start, end)
-        start = self.start_of(self.unit)
-        start = DateTime(start.year, start.month, start.day, tzinfo=self.tzinfo)
-        return Interval(start, start.end_of(self.unit))
-
-
-class DateYear(DateWithUnit):
-    unit = 'year'
-
-    @staticmethod
-    def from_datetime(dt: DateTime) -> DateWithUnit:
-        assert dt.tzinfo is not None
-        return DateYear(dt.year, 1, 1, dt.tzinfo)
-
-class DateMonth(DateWithUnit):
-    unit = 'month'
-
-    @staticmethod
-    def from_datetime(dt: DateTime) -> DateWithUnit:
-        assert dt.tzinfo is not None
-        return DateMonth(dt.year, dt.month, 1, dt.tzinfo)
-
-class DateWeek(DateWithUnit):
-    unit = 'week'
-
-    @staticmethod
-    def from_datetime(dt: DateTime) -> DateWithUnit:
-        assert dt.tzinfo is not None
-        dt = dt - timedelta(days=dt.weekday())
-        return DateWeek(dt.year, dt.month, dt.day, dt.tzinfo)
-
-class DateDay(DateWithUnit):
-    unit = 'day'
-
-    @staticmethod
-    def from_datetime(dt: DateTime) -> DateWithUnit:
-        assert dt.tzinfo is not None
-        return DateDay(dt.year, dt.month, dt.day, dt.tzinfo)
+def date_with_unit(dt: date | datetime, unit: str, *, tz: tzinfo_t | str | None = None) -> DateWithUnit:
+    try:
+        cls: type[DateWithUnit] = _TYPES[unit]
+    except KeyError:
+        raise ValueError(f'Invalid unit: {unit!r}')
+    if isinstance(tz, str):
+        tz = pendulum.timezone(tz)
+    if isinstance(dt, date):
+        if isinstance(dt, datetime):
+            if dt.tzinfo is None:
+                dt = dt.replace(tzinfo=tz)
+            else:
+                dt = dt.astimezone(tz)
+            return cls.from_datetime(dt)
+        elif isinstance(dt, DateWithUnit):
+            return cls(dt.year, dt.month, dt.day, dt.tzinfo)
+        return cls(dt.year, dt.month, dt.day, tz)
+    raise TypeError(f'Expected date/datetime, got {dt!r}')
 
 
 _match_year = re.compile(r'\d{4}').fullmatch
@@ -108,8 +71,14 @@ def parse_exact(s: str, tz: str = 'local') -> DateWithUnit | DateTime | Interval
         raise TypeError(f'Unexpected type returned by pendulum.parse: {result!r}')
 
 
+_normalize_space = functools.partial(re.compile(r'^ +| +(?= )| +$').sub, '')
+
+class _MATCH:
+    units_ago = re.compile(r'(day|week|month|year) (\d+) (day|week|month|year)s? ago', re.I).fullmatch
+
+
 def parse_humanized(value: str) -> DateWithUnit | DateTime | Interval[DateDay] | Interval[DateTime]:
-    s = value.strip()
+    s = _normalize_space(value)
     if '@' in s:
         s, tz = (x.strip() for x in s.split('@', 1))
         # Note that pendulum.parse(tz=...) serves as default if '+' or 'Z' is omitted - it's not an error.
@@ -131,6 +100,15 @@ def parse_humanized(value: str) -> DateWithUnit | DateTime | Interval[DateDay] |
         return DateMonth.from_datetime(pendulum.now(tzinfo))
     elif s == 'this year':
         return DateYear.from_datetime(pendulum.now(tzinfo))
+    elif s == 'last week':
+        return DateWeek.from_datetime(pendulum.now(tzinfo).subtract(weeks=1))
+    elif s == 'last month':
+        return DateMonth.from_datetime(pendulum.now(tzinfo).subtract(months=1))
+    elif s == 'last year':
+        return DateYear.from_datetime(pendulum.now(tzinfo).subtract(years=1))
+    elif m := _MATCH.units_ago(s):
+        desired_unit, number, unit = m.groups()
+        return date_from_datetime(pendulum.now(tzinfo).subtract(**{f'{unit}s': int(number)}), desired_unit)
     res = parse_exact(s, tz=tz)
     if isinstance(res, Time):
         # Workaround for '12:30+05:00' - pendulum (as of 3.2.0) silently drops the timezone info

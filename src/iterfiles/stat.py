@@ -14,10 +14,10 @@ __all__ = ['st_mode', 'st_uid', 'st_gid', 'st_size', 'st_atime', 'st_mtime', 'st
 import pendulum
 from pendulum import Interval, DateTime
 
-from iterfiles.pendulum import DateWithUnit, DateDay, parse_humanized
+from iterfiles.pendulum_extras.__init__ import DateWithUnit, DateDay, parse_humanized
 
 
-class IterfilesPath(pathlib.Path):
+class Path(pathlib.Path):
     """Custom Path subclass with stat caching."""
 
     @cached_property
@@ -53,7 +53,7 @@ class IterfilesPath(pathlib.Path):
         return self._stat.st_ctime
 
 
-class IterfilesPathSym(IterfilesPath):
+class PathSym(Path):
 
     @cached_property
     def _stat(self) -> os.stat_result:
@@ -265,18 +265,18 @@ def _process_value(value: int | float | datetime | date | str
         return value.timestamp()
     # 2.b. DateWithUnit: - return as a pair of timestamps
     elif isinstance(value, DateWithUnit):
-        value = value.as_interval()
+        value = value.to_datetime_interval()
         return value.start.timestamp(), value.end.timestamp()
     # 2.c. naive date (user-supplied): add local timezone and return as timestamp
     elif isinstance(value, date):
-        value = DateDay(value.year, value.month, value.day, tzinfo=pendulum.local_timezone()).as_interval()
+        value = DateDay(value.year, value.month, value.day, tzinfo=pendulum.local_timezone()).to_datetime_interval()
         return value.start.timestamp(), value.end.timestamp()
     # 2.d. Interval: return as a pair of timestamps
     elif isinstance(value, Interval):
         if isinstance(value.start, DateTime):
             return value.start.timestamp(), value.end.timestamp()
         else:
-            return value.start.as_interval().start.timestamp(), value.end.as_interval().end.timestamp()
+            return value.start.as_interval().start_day.timestamp(), value.end.as_interval().end_day.timestamp()
     raise TypeError(f'Unexpected type for timestamp: {value!r} (must be int/float/str/date/datetime)')
 
 

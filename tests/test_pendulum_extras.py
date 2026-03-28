@@ -1,42 +1,91 @@
 import re
+from datetime import date
 
 import pendulum
 from pendulum.parsing.exceptions import ParserError
 import pytest
 from pendulum import Interval, Date, DateTime, UTC
 
-from iterfiles.pendulum import parse_exact, parse_humanized, DateDay, DateWeek, DateMonth, DateYear
+from iterfiles.pendulum_extras.__init__ import parse_exact, parse_humanized, DateWithZone, DateDay, DateWeek, DateMonth, \
+    DateYear, DateWithZoneWarning, DateWithZoneISOFormatWarning
+
+
+def test_date_with_zone():
+    tzinfo_local = pendulum.local_timezone()
+    tzinfo_paris = pendulum.now(tz='Europe/Paris').timezone
+
+    with pytest.raises(TypeError, match=re.escape("DateWithZone.__new__() missing 1 required positional argument: 'tzinfo'")):
+        DateWithZone(2026, 1, 1)
+
+    with pytest.raises(TypeError, match="Expected tzinfo, got None"):
+        DateWithZone(2026, 1,1, None)
+
+    with pytest.raises(TypeError, match="Expected tzinfo, got 'local'"):
+        DateWithZone(2026, 1,1, 'local')
+
+    # =====================================
+    # SECTION 1: Test datetime.date methods
+    # =====================================
+
+    d = DateWithZone.today()
+    assert type(d) is DateWithZone
+    assert d.naive() == date(d.year, d.month, d.day)
+    assert d.tzinfo is tzinfo_local
+
+    d = DateWithZone.fromtimestamp(DateTime(2026, 3, 24).timestamp())
+    assert type(d) is DateWithZone
+    assert d == date(2026, 3, 24)
+    assert d.tzinfo is tzinfo_local
+
+    with pytest.warns(DateWithZoneWarning, match='.+fromisoformat returns naive date'):
+        d = DateWithZone.fromisoformat('2026-03-24')
+        assert type(d) is Date
+        assert d == date(2026, 3, 24)
+
+    # toordinal, fromordinal
+    with pytest.warns(DateWithZoneWarning, match='.+toordinal strips the timezone information and returns plain int'):
+        assert DateWithZone(1, 1, 1, tzinfo_paris).toordinal() == 1
+    with pytest.warns(DateWithZoneWarning, match='.+fromordinal strips the timezone information and returns naive date'):
+        d = DateWithZone.fromordinal(1)
+        assert type(d) is Date  # sic!
+        assert d == date(1, 1, 1)
+
+    # isoformat, fromisoformat
+    #with pytest.warns(DateWithZoneISOFormatWarning, match=''):
+    #    assert DateWithZone(2026, 3, 24, tzinfo_paris).isoformat() == '2026-03-24'
+
+
 
 
 def test_date_to_interval():
     tzinfo = pendulum.now(tz='US/Alaska').timezone
 
     # Day
-    assert DateDay(2026, 3, 24, tzinfo=tzinfo).as_interval() == Interval(
+    assert DateDay(2026, 3, 24, tzinfo=tzinfo).to_datetime_interval() == Interval(
         DateTime(2026, 3, 24, tzinfo=tzinfo),
         DateTime(2026, 3, 24, 23, 59, 59, 999999, tzinfo=tzinfo))
 
     # Week
-    assert DateWeek(2026, 3, 23, tzinfo=tzinfo).as_interval() == Interval(
+    assert DateWeek(2026, 3, 23, tzinfo=tzinfo).to_datetime_interval() == Interval(
         DateTime(2026, 3, 23, tzinfo=tzinfo),
         DateTime(2026, 3, 29, 23, 59, 59, 999999, tzinfo=tzinfo))
-    assert DateWeek(2026, 3, 25, tzinfo=tzinfo).as_interval() == Interval(
+    assert DateWeek(2026, 3, 25, tzinfo=tzinfo).to_datetime_interval() == Interval(
         DateTime(2026, 3, 23, tzinfo=tzinfo),
         DateTime(2026, 3, 29, 23, 59, 59, 999999, tzinfo=tzinfo))
 
     # Month
-    assert DateMonth(2026, 3, 1, tzinfo=tzinfo).as_interval() == Interval(
+    assert DateMonth(2026, 3, 1, tzinfo=tzinfo).to_datetime_interval() == Interval(
         DateTime(2026, 3, 1, tzinfo=tzinfo),
         DateTime(2026, 3, 31, 23, 59, 59, 999999, tzinfo=tzinfo))
-    assert DateMonth(2026, 3, 15, tzinfo=tzinfo).as_interval() == Interval(
+    assert DateMonth(2026, 3, 15, tzinfo=tzinfo).to_datetime_interval() == Interval(
         DateTime(2026, 3, 1, tzinfo=tzinfo),
         DateTime(2026, 3, 31, 23, 59, 59, 999999, tzinfo=tzinfo))
 
     # Year
-    assert DateYear(2026, 1, 1, tzinfo=tzinfo).as_interval() == Interval(
+    assert DateYear(2026, 1, 1, tzinfo=tzinfo).to_datetime_interval() == Interval(
         DateTime(2026, 1, 1, tzinfo=tzinfo),
         DateTime(2026, 12, 31, 23, 59, 59, 999999, tzinfo=tzinfo))
-    assert DateYear(2026, 6, 15, tzinfo=tzinfo).as_interval() == Interval(
+    assert DateYear(2026, 6, 15, tzinfo=tzinfo).to_datetime_interval() == Interval(
         DateTime(2026, 1, 1, tzinfo=tzinfo),
         DateTime(2026, 12, 31, 23, 59, 59, 999999, tzinfo=tzinfo))
 
@@ -51,50 +100,50 @@ def test_parse_exact():
     assert parse('20161001T14') == DateTime(2016, 10, 1, 14, tzinfo=local)
 
     # Day
-    assert parse('2012-05-03').as_interval() == Interval(
+    assert parse('2012-05-03').to_datetime_interval() == Interval(
         DateTime(2012, 5, 3, tzinfo=local),
         DateTime(2012, 5, 3, 23, 59, 59, 999999, tzinfo=local)
     )
-    assert parse('2012-007').as_interval() == Interval(
+    assert parse('2012-007').to_datetime_interval() == Interval(
         DateTime(2012, 1, 7, tzinfo=local),
         DateTime(2012, 1, 7, 23, 59, 59, 999999, tzinfo=local)
     )
-    assert parse('2012007').as_interval() == Interval(
+    assert parse('2012007').to_datetime_interval() == Interval(
         DateTime(2012, 1, 7, tzinfo=local),
         DateTime(2012, 1, 7, 23, 59, 59, 999999, tzinfo=local)
     )
 
     # Day (with Week number)
-    assert parse('2012W055').as_interval() == Interval(
+    assert parse('2012W055').to_datetime_interval() == Interval(
         DateTime(2012, 2, 3, tzinfo=local),
         DateTime(2012, 2, 3, 23, 59, 59, 999999, tzinfo=local)
     )
 
     # Week
-    assert parse('2012-W05').as_interval() == Interval(
+    assert parse('2012-W05').to_datetime_interval() == Interval(
         DateTime(2012, 1, 30, tzinfo=local),
         DateTime(2012, 2, 5, 23, 59, 59, 999999, tzinfo=local)
     )
-    assert parse('2012W05').as_interval() == Interval(
+    assert parse('2012W05').to_datetime_interval() == Interval(
         DateTime(2012, 1, 30, tzinfo=local),
         DateTime(2012, 2, 5, 23, 59, 59, 999999, tzinfo=local)
     )
 
     # Month
-    assert parse('2012-05').as_interval() == Interval(
+    assert parse('2012-05').to_datetime_interval() == Interval(
         DateTime(2012, 5, 1, tzinfo=local),
         DateTime(2012, 5, 31, 23, 59, 59, 999999, tzinfo=local)
     )
 
     # Year
-    assert parse('2012').as_interval() == Interval(
+    assert parse('2012').to_datetime_interval() == Interval(
         DateTime(2012, 1, 1, tzinfo=local),
         DateTime(2012, 12, 31, 23, 59, 59, 999999, tzinfo=local)
     )
 
     # start/end
     dt = parse('2012')
-    assert dt.start == DateDay(2012, 1, 1, tzinfo=local)
+    assert dt.start_day == DateDay(2012, 1, 1, tzinfo=local)
 
     # Ambiguous (date? time?)
     with pytest.raises(ParserError):
@@ -127,31 +176,31 @@ def test_parse_humanized():
     parse = parse_humanized
 
     # Day
-    assert parse('2012-05-03 @ Europe/Paris').as_interval() == Interval(
+    assert parse('2012-05-03 @ Europe/Paris').to_datetime_interval() == Interval(
         DateTime(2012, 5, 3, tzinfo=paris),
         DateTime(2012, 5, 3, 23, 59, 59, 999999, tzinfo=paris)
     )
 
     # Week
-    assert parse('2012W05 @ Europe/Paris').as_interval() == Interval(
+    assert parse('2012W05 @ Europe/Paris').to_datetime_interval() == Interval(
         DateTime(2012, 1, 30, tzinfo=paris),
         DateTime(2012, 2, 5, 23, 59, 59, 999999, tzinfo=paris)
     )
 
     # Month
-    assert parse('2012-05 @ Europe/Paris').as_interval() == Interval(
+    assert parse('2012-05 @ Europe/Paris').to_datetime_interval() == Interval(
         DateTime(2012, 5, 1, tzinfo=paris),
         DateTime(2012, 5, 31, 23, 59, 59, 999999, tzinfo=paris)
     )
 
     # Year
-    assert parse('2012 @ Europe/Paris').as_interval() == Interval(
+    assert parse('2012 @ Europe/Paris').to_datetime_interval() == Interval(
         DateTime(2012, 1, 1, tzinfo=paris),
         DateTime(2012, 12, 31, 23, 59, 59, 999999, tzinfo=paris)
     )
 
 
-def test_parse_humanized_time():
+def test_parse_humanized_time(local_timezone_bishkek):
     today = pendulum.today('local')
     tzinfo_05 = pendulum.parse('2026-03-26T12:30+05:00').tzinfo
     paris = pendulum.timezone('Europe/Paris')

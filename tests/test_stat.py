@@ -61,7 +61,7 @@ def patch_stat(results: dict[Path, StatResultMock]):
     return patch('pathlib.Path.stat', autospec=True, side_effect=stat_mock)
 
 
-def test_st_size():
+def test_st_size(cache_fs_read):
     path = DATA_DIR / 'example1'
 
     # st_size < 15
@@ -143,9 +143,8 @@ def test_st_size():
     ]
 
 
-#@pytest.mark.parametrize('attr', ['st_atime', 'st_ctime', 'st_mtime'])
-@pytest.mark.parametrize('attr', ['st_atime'])
-def test_time(attr):
+@pytest.mark.parametrize('attr', ['st_atime', 'st_ctime', 'st_mtime'])
+def test_time(attr, cache_fs_read):
     path = DATA_DIR / 'example2'
     st_attr = globals()[attr]  # st_atime, etc.
 
@@ -268,8 +267,8 @@ def test_time(attr):
 
 
 @pytest.mark.time_machine(datetime(2026, 3, 26, 12, 30, 57, tzinfo=pendulum.timezone('US/Alaska')))
-@pytest.mark.parametrize('attr', ['st_atime']) # ['st_atime', 'st_ctime', 'st_mtime'])
-def test_time_humanized(attr):
+@pytest.mark.parametrize('attr', ['st_atime', 'st_ctime', 'st_mtime'])
+def test_time_humanized(attr, cache_fs_read):
     path = DATA_DIR / 'example2'
     st_attr = globals()[attr]  # st_atime, etc.
     now = pendulum.datetime(2026, 3, 26, 12, 30, 57, tz='US/Alaska')
@@ -360,13 +359,13 @@ def test_time_humanized(attr):
 
 
 @pytest.mark.time_machine(datetime(2026, 3, 26, 12, 30, 57, tzinfo=pendulum.timezone('US/Alaska')))
-@pytest.mark.parametrize('attr', ['st_atime'])  # ['st_atime', 'st_ctime', 'st_mtime'])
-def test_time_humanized_week(attr):
+@pytest.mark.parametrize('attr', ['st_atime', 'st_ctime', 'st_mtime'])
+def test_time_humanized_week(attr, cache_fs_read, local_timezone_alaska):
     path = DATA_DIR / 'example2'
     st_attr = globals()[attr]  # st_atime, etc.
     now = pendulum.datetime(2026, 3, 26, 12, 30, 57, tz='US/Alaska')
     with patch_stat({
-        path / 'shapes.txt': stat_mock(**{attr: now.subtract(years=1, days=1)}),
+        path / 'shapes.txt': stat_mock(**{attr: now.subtract(weeks=2)}),
         path / 'aa' / 'numbers.txt': stat_mock(**{attr: now.subtract(days=5)}),
         path / 'aa' / 'pets.txt': stat_mock(**{attr: now.subtract(days=4)}),
         path / 'bb' / 'names.txt': stat_mock(**{attr: now.subtract(days=3)}),
@@ -380,8 +379,8 @@ def test_time_humanized_week(attr):
             path / 'bb' / 'birds.txt',
             path / 'bb' / 'cc' / 'aircraft.txt',
         }
-        assert iterfiles(path, '**/*.txt').filter_stat(**{f'{attr}': 'this week @ US/Alaska'}).set() == expected
-        assert iterfiles(path, '**/*.txt').filter_stat(st_attr == 'this week @ US/Alaska').set() == expected
+        assert iterfiles(path, '**/*.txt').filter_stat(**{f'{attr}': 'this week'}).set() == expected
+        assert iterfiles(path, '**/*.txt').filter_stat(st_attr == 'this week').set() == expected
 
         # time != this week
         expected = {
@@ -390,8 +389,8 @@ def test_time_humanized_week(attr):
             path / 'aa' / 'pets.txt',
             path / 'bb' / 'cc' / 'cars.txt',
         }
-        assert iterfiles(path, '**/*.txt').filter_stat(**{f'{attr}__ne': 'this week @ US/Alaska'}).set() == expected
-        assert iterfiles(path, '**/*.txt').filter_stat(st_attr != 'this week @ US/Alaska').set() == expected
+        assert iterfiles(path, '**/*.txt').filter_stat(**{f'{attr}__ne': 'this week'}).set() == expected
+        assert iterfiles(path, '**/*.txt').filter_stat(st_attr != 'this week').set() == expected
 
         # time < this week
         expected = {
@@ -399,8 +398,8 @@ def test_time_humanized_week(attr):
             path / 'aa' / 'numbers.txt',
             path / 'aa' / 'pets.txt',
         }
-        assert iterfiles(path, '**/*.txt').filter_stat(**{f'{attr}__lt': 'this week @ US/Alaska'}).set() == expected
-        assert iterfiles(path, '**/*.txt').filter_stat(st_attr < 'this week @ US/Alaska').set() == expected
+        assert iterfiles(path, '**/*.txt').filter_stat(**{f'{attr}__lt': 'this week'}).set() == expected
+        assert iterfiles(path, '**/*.txt').filter_stat(st_attr < 'this week').set() == expected
 
         # time <= this week
         expected = {
@@ -411,15 +410,15 @@ def test_time_humanized_week(attr):
             path / 'bb' / 'birds.txt',
             path / 'bb' / 'cc' / 'aircraft.txt',
         }
-        assert iterfiles(path, '**/*.txt').filter_stat(**{f'{attr}__le': 'this week @ US/Alaska'}).set() == expected
-        assert iterfiles(path, '**/*.txt').filter_stat(st_attr <= 'this week @ US/Alaska').set() == expected
+        assert iterfiles(path, '**/*.txt').filter_stat(**{f'{attr}__le': 'this week'}).set() == expected
+        assert iterfiles(path, '**/*.txt').filter_stat(st_attr <= 'this week').set() == expected
 
         # time > this week
         expected = {
             path / 'bb' / 'cc' / 'cars.txt'
         }
-        assert iterfiles(path, '**/*.txt').filter_stat(**{f'{attr}__gt': 'this week @ US/Alaska'}).set() == expected
-        assert iterfiles(path, '**/*.txt').filter_stat(st_attr > 'this week @ US/Alaska').set() == expected
+        assert iterfiles(path, '**/*.txt').filter_stat(**{f'{attr}__gt': 'this week'}).set() == expected
+        assert iterfiles(path, '**/*.txt').filter_stat(st_attr > 'this week').set() == expected
 
         # time >= this week
         expected = {
@@ -428,14 +427,38 @@ def test_time_humanized_week(attr):
             path / 'bb' / 'cc' / 'aircraft.txt',
             path / 'bb' / 'cc' / 'cars.txt'
         }
-        assert iterfiles(path, '**/*.txt').filter_stat(**{f'{attr}__ge': 'this week @ US/Alaska'}).set() == expected
-        assert iterfiles(path, '**/*.txt').filter_stat(st_attr >= 'this week @ US/Alaska').set() == expected
+        assert iterfiles(path, '**/*.txt').filter_stat(**{f'{attr}__ge': 'this week'}).set() == expected
+        assert iterfiles(path, '**/*.txt').filter_stat(st_attr >= 'this week').set() == expected
 
         # timezone difference
         expected = {
-            path / 'aa' / 'pets.txt',  # due to 13 hours difference, this also fits into week
+            path / 'aa' / 'pets.txt',  # due to 13 hours difference, this also fits into "this week"
             path / 'bb' / 'names.txt',
             path / 'bb' / 'birds.txt',
             path / 'bb' / 'cc' / 'aircraft.txt',
         }
         assert iterfiles(path, '**/*.txt').filter_stat(st_attr == 'this week @ Asia/Bishkek').set() == expected
+
+        # time = last week
+        expected = {
+            path / 'aa' / 'numbers.txt',
+            path / 'aa' / 'pets.txt',
+        }
+        assert iterfiles(path, '**/*.txt').filter_stat(**{f'{attr}': 'last week'}).set() == expected
+        assert iterfiles(path, '**/*.txt').filter_stat(st_attr == 'last week').set() == expected
+
+        # time < last week
+        expected = {
+            path / 'shapes.txt',
+        }
+        assert iterfiles(path, '**/*.txt').filter_stat(**{f'{attr}__lt': 'last week'}).set() == expected
+        assert iterfiles(path, '**/*.txt').filter_stat(st_attr < 'last week').set() == expected
+
+        # time <= last week
+        expected = {
+            path / 'shapes.txt',
+            path / 'aa' / 'numbers.txt',
+            path / 'aa' / 'pets.txt',
+        }
+        assert iterfiles(path, '**/*.txt').filter_stat(**{f'{attr}__le': 'last week'}).set() == expected
+        assert iterfiles(path, '**/*.txt').filter_stat(st_attr <= 'last week').set() == expected
