@@ -14,7 +14,7 @@ __all__ = ['st_mode', 'st_uid', 'st_gid', 'st_size', 'st_atime', 'st_mtime', 'st
 import pendulum
 from pendulum import Interval, DateTime
 
-from iterfiles.pendulum_extras.__init__ import DateWithUnit, DateDay, parse_humanized
+from iterfiles.pendulum_extras import DateWithUnit, DateDay, parse_humanized
 
 
 class Path(pathlib.Path):

@@ -7,7 +7,7 @@ name = "iterfiles"
 dynamic = ["version"]
 description = "Iterate files in a Pythonic way (itertools for files), using glob patterns, filters and more."
 requires-python = ">= 3.10"
-dependencies = ["pendulum>=3.2,<4.0"]
+dependencies = ["pendulum>=3.2,<4.0", "typing_extensions"]
 license = "MIT"
 license-files = ["LICENSE"]
 authors = [{name = "Alexander Lukanin", email = "alexander.lukanin.13@gmail.com"}]

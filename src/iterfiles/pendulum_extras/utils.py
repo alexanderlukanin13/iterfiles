@@ -17,5 +17,7 @@ def run_once(func):
     return wrapper
 
 
+# Regular expressions belong here
 class _MATCH:
-    offset_with_colon = re.compile(r'\+\d{2}:\d{2}').fullmatch
+    tz_offset_with_colon = re.compile(r'[+-]\d{2}:\d{2}').fullmatch
+    tz_utc_offset_with_colon = re.compile(r'UTC[+-]\d{2}:\d{2}', re.I).fullmatch

@@ -8,7 +8,8 @@ from dataclasses import dataclass, field
 from datetime import date, datetime
 from functools import reduce
 from pathlib import Path
-from typing import Callable, Iterable, Any, TypeVar, Sequence, Self
+from typing import Callable, Iterable, Any, TypeVar, Sequence
+from typing_extensions import Self
 
 from . import stat as _s
 from .stat import Path as IPath, PathSym, StatExpr
@@ -28,7 +29,7 @@ class InvalidPathError(Exception):
     pass
 
 
-def _ensure_dir(dir_path: str | Path, must_exist=True) -> IPath:
+def _ensure_dir(dir_path: str | Path, must_exist: bool = True) -> IPath:
     """
     Convert str to Path. Check if directory exists and contains no invalid symbols.
     """
@@ -103,7 +104,7 @@ class _iterfiles_base:  # noqa
         return files
 
 
-TimeT = int | datetime | date | str | None
+TimeT = int | datetime | date | str
 TimeTupleT = tuple[TimeT, TimeT]
 
 
@@ -336,7 +337,7 @@ class iterfiles(_iterfiles_base):  # noqa
         self._config.in_newline = newline
         return _iterfiles_text(self)
 
-    def binary(self):
+    def binary(self) -> _iterfiles_binary:
         return _iterfiles_binary(self)
 
     def foreach(self, function: Callable[[Path], Any]) -> None:
@@ -460,12 +461,12 @@ class _iterfiles_map(_iterfiles_map_base, Iterable[tuple[Path, Path]]):  # noqa
     def binary(self) -> _iterfiles_binary_map:
         return _iterfiles_binary_map(self)
 
-    def write_text(self, function: Callable[[Path], str], *, encoding: str | None = 'utf-8', errors: str | None = None, newline: str | None = None):
+    def write_text(self, function: Callable[[Path], str], *, encoding: str | None = 'utf-8', errors: str | None = None, newline: str | None = None) -> None:
         for in_path, out_path in self:
             with open(out_path, 'w', encoding=encoding, errors=errors, newline=newline) as out_file:
                 out_file.write(function(in_path))
 
-    def write_binary(self, function: Callable[[Path], bytes]):
+    def write_binary(self, function: Callable[[Path], bytes]) -> None:
         for in_path, out_path in self:
             with open(out_path, 'wb') as out_file:
                 out_file.write(function(in_path))
@@ -524,7 +525,7 @@ class _iterfiles_binary_map(_iterfiles_map_base, _binary_mixin, Iterable[tuple[b
         for bytes_in, path_out in self:
             function(bytes_in, path_out)
 
-    def write_text(self, function: Callable[[bytes], str] | None = _decode_utf8, *, encoding: str | None = 'utf-8', errors: str | None = None, newline: str | None = None) -> None:
+    def write_text(self, function: Callable[[bytes], str] = _decode_utf8, *, encoding: str | None = 'utf-8', errors: str | None = None, newline: str | None = None) -> None:
         for in_bytes, out_path in self:
             for f in self._map_functions:
                 in_bytes = f(in_bytes)

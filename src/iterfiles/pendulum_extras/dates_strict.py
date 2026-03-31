@@ -1,6 +1,4 @@
-from inspect import isclass
-
-from . import dates
+from . import dates, protocol
 
 
 class DateWithZoneError(Exception):
@@ -40,4 +38,7 @@ class DateWithZone(dates.DateWithZone):
         cls._raise('strptime')
 
     def __eq__(self, other) -> bool:
-        return type(self) is type(other) and
+        if not isinstance(other, protocol.DateWithZone):
+            raise DateWithZoneError(f"Can't compare {self.__class__.__qualname__} to {other.__class__.__qualname__}")
+        return self.year == other.year and self.month == other.month and self.day == other.day and self.tzinfo == other.tzinfo
+

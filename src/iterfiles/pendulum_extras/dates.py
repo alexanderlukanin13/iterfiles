@@ -7,7 +7,11 @@ import pendulum
 from pendulum import Date, DateTime, Interval, FixedTimezone, UTC, Timezone
 import typing_extensions
 from pendulum.helpers import add_duration
+
+from .protocol_pendulum import IndexOrNone
 from .utils import _MATCH
+
+
 
 __all__ = [
     'DateWithZoneWarning', 'DateWithZoneISOFormatWarning', 'DateWithZoneProlepticWarning',
@@ -28,7 +32,7 @@ class DateWithZoneProlepticWarning(DateWithZoneWarning):
 
 
 _TimezoneT = tzinfo_t | str | int
-_IndexOrNone = typing_extensions.SupportsIndex | None
+
 
 # Timezone classes - quick reminder
 # =================================
@@ -65,7 +69,7 @@ def timezone(name: str | int) -> Timezone | FixedTimezone:
 
 class DateWithZone(Date):
     """
-    Date with timezone loosely attached.
+    Date with timezone *loosely* attached.
     Fully compatible with naive date and can substitute ``datetime.date`` in all contexts,
     with one exception:
 
@@ -139,7 +143,7 @@ class DateWithZone(Date):
             'in any meaningful way, please stick to naive dates for that purpose.', DateWithZoneProlepticWarning)
         return Date.toordinal(self)
 
-    def isoformat(self):
+    def isoformat(self) -> str:
         """Return a string representing the date in ISO 8601 format, YYYY-MM-DD"""
         warnings.warn(
             f'{self.__class__.__qualname__}.isoformat strips the timezone information and returns '
@@ -173,7 +177,7 @@ class DateWithZone(Date):
             'please stick to naive dates for that purpose.', DateWithZoneWarning)
         return date.fromisocalendar(year, week, day)
 
-    def replace(self, year: _IndexOrNone = None, month: _IndexOrNone = None, day: _IndexOrNone = None,
+    def replace(self, year: IndexOrNone = None, month: IndexOrNone = None, day: IndexOrNone = None,
                 tzinfo: tzinfo_t | None = None) -> Self:
         """"""
         return self.__class__(year or self.year, month or self.month, day or self.day, tzinfo or self.tzinfo)
@@ -306,7 +310,7 @@ class DateWithZone(Date):
             tzname = self.tzinfo.name
         except AttributeError:
             tzname = str(self.tzinfo)
-        if tzname[0] == '+' and _MATCH.offset_with_colon(tzname):
+        if tzname[0] == '+' and _MATCH.tz_offset_with_colon(tzname):
             tzname = f'UTC{tzname}'
         return f'{self.year:04}-{self.month:02}-{self.day:02} @ {tzname}'
 
