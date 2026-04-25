@@ -1,13 +1,22 @@
-# ===========================================
+# ============================================================================
 # THIS IS COPYPASTED FROM pendulum/date.py
 # pendulum 3.2.0
-# THE ONLY CHANGE:
-# `class Date(FormattableMixin, date):` -> `class DateMixIn(FormattableMixin):`
-# ===========================================
+# THE ONLY CHANGES (marked by ## double comments):
+# 1. `from pendulum.date import Date`
+# 2. `class Date(FormattableMixin, date):` -> `class PendulumDateMixIn(FormattableMixin):`
+#
+# THIS FILE IS HERE AS A WORKAROUND AND SHOULD BE CONSIDERED A PART OF pendulum;
+# LICENSE OF pendulum IS APPLICABLE TO IT, NOT THE LICENSE OF pendulum-extras
+# ============================================================================
 
 # The following is only needed because of Python 3.7
 # mypy: no-warn-unused-ignores
 from __future__ import annotations
+
+##
+## Import pendulum.Date
+##
+from pendulum.date import Date
 
 import calendar
 import math
@@ -38,7 +47,11 @@ if TYPE_CHECKING:
     from typing_extensions import SupportsIndex
 
 
-class DateMixIn(FormattableMixin):
+##
+## Instead of class, declare Date as mixin, so we can use the implementation for both
+## dates.DateWithUnit and dates_strict.DateWithUnit
+##
+class PendulumDateMixIn(FormattableMixin):
     _MODIFIERS_VALID_UNITS: ClassVar[list[str]] = [
         "day",
         "week",

@@ -69,16 +69,7 @@ def timezone(name: str | int) -> Timezone | FixedTimezone:
             return Timezone(name)
 
 
-class DateWithZone(Date):
-    """
-    Date with timezone *loosely* attached.
-    Fully compatible with naive date and can substitute ``datetime.date`` in all contexts,
-    with one exception:
-
-    >>> TODO
-
-    Issues warnings when non-timezone-aware operations are performed.
-    """
+class _DateWithZoneImpl:
 
     def __new__(cls, year: SupportsIndex, month: SupportsIndex, day: SupportsIndex, tzinfo: tzinfo_t):
         instance = super().__new__(cls, year, month, day)
@@ -334,7 +325,35 @@ class DateWithZone(Date):
         warnings.filterwarnings("ignore", category=DateWithZoneWarning)
 
 
-class DateWithUnit(DateWithZone, abc.ABC):
+class DateWithZone(_DateWithZoneImpl, Date):
+    """
+    Date with timezone *loosely* attached.
+    Fully compatible with naive date and can substitute ``datetime.date`` in all contexts,
+    with one exception:
+
+    >>> TODO
+
+    Issues warnings when non-timezone-aware operations are performed.
+    """
+
+
+class _DateWithUnitImpl(abc.ABC):
+
+    @classmethod
+    @abc.abstractmethod
+    def from_datetime(cls, dt: datetime_t) -> Self:
+        raise NotImplementedError  # pragma: no cover
+
+    def to_datetime_interval(self) -> pendulum.Interval[pendulum.DateTime]:
+        # In normal conventional usage, self = self.start_of()
+        # However, nothing prevents user from instantiating DateWithUnit in the middle of unit (week, month, etc.)
+        # In any case, to_datetime_interval() should still return correct Interval(start, end)
+        start = self.start_of(self.unit)
+        start = DateTime(start.year, start.month, start.day, tzinfo=self.tzinfo)
+        return Interval(start, start.end_of(self.unit))
+
+
+class DateWithUnit(_DateWithUnitImpl, DateWithZone, abc.ABC):
 
     @property
     def start_day(self) -> 'DateDay':
@@ -346,56 +365,62 @@ class DateWithUnit(DateWithZone, abc.ABC):
         d = self.end_of(self.unit)
         return DateDay(d.year, d.month, d.day, d.tzinfo)
 
-    @staticmethod
-    @abc.abstractmethod
-    def from_datetime(dt: datetime_t) -> 'DateWithUnit':
-        raise NotImplementedError  # pragma: no cover
-
     def to_date_interval(self) -> pendulum.Interval['DateDay']:
         return Interval(self.start_day, self.end_day)
 
-    def to_datetime_interval(self) -> pendulum.Interval[pendulum.DateTime]:
-        # In normal conventional usage, self = self.start_of()
-        # However, nothing prevents user from instantiating DateWithUnit in the middle of unit (week, month, etc.)
-        # In any case, to_datetime_interval() should still return correct Interval(start, end)
-        start = self.start_of(self.unit)
-        start = DateTime(start.year, start.month, start.day, tzinfo=self.tzinfo)
-        return Interval(start, start.end_of(self.unit))
 
-
-class DateYear(DateWithUnit):
+class _DateYearImpl:
     unit = 'year'
 
-    @staticmethod
-    def from_datetime(dt: datetime_t) -> DateWithUnit:
+    @classmethod
+    def from_datetime(cls, dt: datetime_t) -> Self:
         if dt.tzinfo is None:
             raise ValueError("Can't create DateYear from naive datetime")
-        return DateYear(dt.year, 1, 1, dt.tzinfo)
+        return cls(dt.year, 1, 1, dt.tzinfo)
 
-class DateMonth(DateWithUnit):
+
+class DateYear(_DateYearImpl, DateWithUnit):
+    pass
+
+
+class _DateMonthImpl(DateWithUnit):
     unit = 'month'
 
-    @staticmethod
-    def from_datetime(dt: datetime_t) -> DateWithUnit:
+    @classmethod
+    def from_datetime(cls, dt: datetime_t) -> Self:
         if dt.tzinfo is None:
             raise ValueError("Can't create DateMonth from naive datetime")
-        return DateMonth(dt.year, dt.month, 1, dt.tzinfo)
+        return cls(dt.year, dt.month, 1, dt.tzinfo)
 
-class DateWeek(DateWithUnit):
+
+class DateMonth(_DateMonthImpl, DateWithUnit):
+    pass
+
+
+class _DateWeekImpl:
     unit = 'week'
 
-    @staticmethod
-    def from_datetime(dt: datetime_t) -> DateWithUnit:
+    @classmethod
+    def from_datetime(cls, dt: datetime_t) -> Self:
         if dt.tzinfo is None:
             raise ValueError("Can't create DateWeek from naive datetime")
         dt = dt - timedelta(days=dt.weekday())
-        return DateWeek(dt.year, dt.month, dt.day, dt.tzinfo)
+        return cls(dt.year, dt.month, dt.day, dt.tzinfo)
 
-class DateDay(DateWithUnit):
+
+class DateWeek(_DateWeekImpl, DateWithUnit):
+    pass
+
+
+class _DateDayImpl:
     unit = 'day'
 
-    @staticmethod
-    def from_datetime(dt: datetime_t) -> DateWithUnit:
+    @classmethod
+    def from_datetime(cls, dt: datetime_t) -> Self:
         if dt.tzinfo is None:
             raise ValueError("Can't create DateDay from naive datetime")
-        return DateDay(dt.year, dt.month, dt.day, dt.tzinfo)
+        return DateDay(cls, dt.year, dt.month, dt.day, dt.tzinfo)
+
+
+class DateDay(_DateDayImpl, DateWithUnit):
+    pass
