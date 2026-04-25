@@ -1,19 +1,15 @@
+import sys
 from collections.abc import Iterator
-from datetime import date, timedelta, tzinfo as tzinfo_t, datetime, time as time_t
+import datetime
+from datetime import date as date_t, timedelta, time as time_t, tzinfo as tzinfo_t, datetime as datetime_t
 from time import struct_time as struct_time_t
-from typing import Protocol, Self, ClassVar, SupportsIndex, NamedTuple, Literal, TypeVar, Generic, Any
+from typing import Protocol, Self, ClassVar, SupportsIndex, NamedTuple, Literal, TypeVar, Any, overload, NoReturn
 import typing_extensions
 
+import pendulum
 from pendulum import WeekDay, Timezone, FixedTimezone, UTC
-from pendulum.utils._compat import PYPY
 
 IndexOrNone = typing_extensions.SupportsIndex | None
-
-
-class IsoCalendarDate(NamedTuple):
-    year: int
-    week: int
-    weekday: int
 
 
 class _TimezoneArgumentIgnored(tzinfo_t):
@@ -36,9 +32,18 @@ TimezoneArgumentIgnored = _TimezoneArgumentIgnored()
 
 class DateLike(Protocol):
     """Protocol for datetime.date"""
-    year: int
-    month: int
-    day: int
+
+    @property
+    def year(self) -> int:
+        ...
+
+    @property
+    def month(self) -> int:
+        ...
+
+    @property
+    def day(self) -> int:
+        ...
 
     @classmethod
     def today(cls) -> Self:
@@ -62,19 +67,24 @@ class DateLike(Protocol):
     def fromisoformat(cls, date_string: str) -> Self:
         ...
 
-    def isocalendar(self):
+    def isocalendar(self) -> 'datetime.IsoCalendarDate':
         ...
 
     @classmethod
     def fromisocalendar(cls, year: int, week: int, day: int) -> Self:
         ...
 
-    def replace(self, year: IndexOrNone = None, month: IndexOrNone = None, day: IndexOrNone = None) -> Self:
+    def replace(self, year: SupportsIndex, month: SupportsIndex, day: SupportsIndex) -> Self:
         ...
 
-    @classmethod
-    def strptime(cls, date_string: str, fmt: str) -> Self:
-        ...
+    if sys.version_info >= (3, 14):
+        @classmethod
+        def strptime(cls, date_string: str, fmt: str) -> Self:
+            ...
+
+    # TODO: Changed in version 3.13: Comparison between datetime object and an instance of the date subclass
+    # that is not a datetime subclass no longer converts the latter to date, ignoring the time part and the time zone.
+    # The default behavior can be changed by overriding the special comparison methods in subclasses.
 
 
 class Date(DateLike, Protocol):
@@ -117,10 +127,10 @@ class Date(DateLike, Protocol):
     def to_formatted_date_string(self) -> str:
         ...
 
-    def closest(self, dt1: date, dt2: date) -> Self:
+    def closest(self, dt1: date_t, dt2: date_t) -> Self:
         ...
 
-    def farthest(self, dt1: date, dt2: date) -> Self:
+    def farthest(self, dt1: date_t, dt2: date_t) -> Self:
         ...
 
     def is_future(self) -> bool:
@@ -135,14 +145,14 @@ class Date(DateLike, Protocol):
     def is_long_year(self) -> bool:
         ...
 
-    def is_same_day(self, dt: date) -> bool:
+    def is_same_day(self, dt: date_t) -> bool:
         ...
 
     # NOTE: is_anniversary and is_birthday are synonyms
-    def is_anniversary(self, dt: date | None = None) -> bool:
+    def is_anniversary(self, dt: date_t | None = None) -> bool:
         ...
 
-    def is_birthday(self, dt: date | None = None) -> bool:
+    def is_birthday(self, dt: date_t | None = None) -> bool:
         ...
 
     def add(self, years: int = 0, months: int = 0, weeks: int = 0, days: int = 0) -> Self:
@@ -154,24 +164,23 @@ class Date(DateLike, Protocol):
     def __add__(self, other: timedelta) -> Self:
         ...
 
-    def __sub__(self, other: timedelta) -> Self:
+    @overload
+    def __sub__(self, other: timedelta) -> pendulum.Date:
         ...
-
-    # NOTE: pendulum (as of version 3.2.0) also supports Date - Date -> Interval
-    # We believe this is bad design to mix types like this.
-    #@overload
-    #def __sub__(self, __dt: Self) -> Interval[Self]:
-    #    ...
 
     # Date == datetime is explicitly disallowed in pendulum
-    #@overload
-    #def __sub__(self, __dt: datetime) -> NoReturn: ...
-    #    ...
-
-    def diff(self, dt: date | None = None, abs: bool = True) -> Interval[Self]:
+    @overload
+    def __sub__(self, __dt: datetime) -> NoReturn:
         ...
 
-    def diff_for_humans(self, other: date | None = None, absolute: bool = False, locale: str | None = None) -> str:
+    @overload
+    def __sub__(self, __dt: pendulum.Date) -> pendulum.Interval[pendulum.Date]:
+        ...
+
+    def diff(self, dt: date_t | None = None, abs: bool = True) -> pendulum.Interval[pendulum.Date]:
+        ...
+
+    def diff_for_humans(self, other: date_t | None = None, absolute: bool = False, locale: str | None = None) -> str:
         ...
 
     def start_of(self, unit: str) -> Self:
@@ -195,36 +204,54 @@ class Date(DateLike, Protocol):
     def nth_of(self, unit: str, nth: int, day_of_week: WeekDay) -> Self:
         ...
 
-    def average(self, dt: date | None = None) -> Self:
+    def average(self, dt: date_t | None = None) -> Self:
         ...
 
 
 class TimeLike(Protocol):
     """Protocol for datetime.time"""
-    min: ClassVar['TimeLike']
-    max: ClassVar['TimeLike']
+    min: ClassVar[time_t]
+    max: ClassVar[time_t]
     resolution: ClassVar[timedelta]
 
-    hour: int
-    minute: int
-    second: int
-    microsecond: int
-    tzinfo: tzinfo_t | None
-    fold: int  # 0 or 1
+    @property
+    def hour(self) -> int:
+        ...
+
+    @property
+    def minute(self) -> int:
+        ...
+
+    @property
+    def second(self) -> int:
+        ...
+
+    @property
+    def microsecond(self) -> int:
+        ...
+
+    @property
+    def tzinfo(self) -> tzinfo_t | None:
+        ...
+
+    @property
+    def fold(self) -> int:  # 0 or 1
+        ...
 
     @classmethod
     def fromisoformat(cls, time_string: str) -> Self:
         ...
 
-    @classmethod
-    def strptime(self, date_string: str, format: str) -> Self:
-        ...
+    if sys.version_info >= (3, 14):
+        @classmethod
+        def strptime(self, date_string: str, format: str) -> Self:
+            ...
 
     def replace(self,
-                hour: int | None = None,
-                minute: int | None = None,
-                second: int | None = None,
-                microsecond: int | None = None,
+                hour: SupportsIndex = None,
+                minute: SupportsIndex = None,
+                second: SupportsIndex = None,
+                microsecond: SupportsIndex = None,
                 tzinfo: tzinfo_t | None = None,
                 *, fold: int=0):
         ...
@@ -239,7 +266,7 @@ class TimeLike(Protocol):
     def __format__(self, format: str) -> str:
         ...
 
-    def utcoffset(self) -> int | None:
+    def utcoffset(self) -> timedelta | None:
         ...
 
     def dst(self) -> timedelta | None:
@@ -252,27 +279,54 @@ class TimeLike(Protocol):
 class DateTimeLike(Protocol):
     """Protocol for datetime.datetime"""
 
-    min: ClassVar['DateTimeLike']
-    max: ClassVar['DateTimeLike']
+    min: ClassVar[Self]
+    max: ClassVar[Self]
 
-    year: int
-    month: int
-    day: int
-    hour: int
-    minute: int
-    second: int
-    microsecond: int
-    tzinfo: tzinfo_t | None
-    fold: int  # 0 or 1
+    @property
+    def year(self) -> int:
+        ...
+
+    @property
+    def month(self) -> int:
+        ...
+
+    @property
+    def day(self) -> int:
+        ...
+
+    @property
+    def hour(self) -> int:
+        ...
+
+    @property
+    def minute(self) -> int:
+        ...
+
+    @property
+    def second(self) -> int:
+        ...
+
+    @property
+    def microsecond(self) -> int:
+        ...
+
+    @property
+    def tzinfo(self) -> tzinfo_t | None:
+        ...
+
+    @property
+    def fold(self) -> int:  # 0 or 1
+        ...
 
     # Note: it will be removed in "future version" of Python
     @classmethod
     def utcnow(cls) -> Self:
         ...
 
-    @classmethod
-    def now(cls, tz: tzinfo_t | None = None) -> Self:
-        ...
+    # EXCLUDED_FROM_PROTOCOL
+    #@classmethod
+    #def now(cls, tz: tzinfo_t | None = None) -> Self:
+    #    ...
 
     # Note: as per documentation, this is equivalent of now() but returning naive object
     @classmethod
@@ -292,7 +346,7 @@ class DateTimeLike(Protocol):
         ...
 
     @classmethod
-    def combine(cls, date: DateLike, time: TimeLike, tzinfo: tzinfo_t | None = None) -> Self:
+    def combine(cls, date: date_t, time: time_t, tzinfo: tzinfo_t | None = None) -> Self:
         ...
 
     @classmethod
@@ -307,50 +361,56 @@ class DateTimeLike(Protocol):
     def strptime(cls, date_string: str, format: str) -> Self:
         ...
 
-    def __eq__(self, other: 'DateTimeLike') -> bool:
+    def __eq__(self, other: datetime_t) -> bool:
         ...
 
-    def __ne__(self, other: 'DateTimeLike') -> bool:
+    def __ne__(self, other: datetime_t) -> bool:
         ...
 
-    def __lt__(self, other: 'DateTimeLike') -> bool:
+    def __lt__(self, other: datetime_t) -> bool:
         ...
 
-    def __le__(self, other: 'DateTimeLike') -> bool:
+    def __le__(self, other: datetime_t) -> bool:
         ...
 
-    def __gt__(self, other: 'DateTimeLike') -> bool:
+    def __gt__(self, other: datetime_t) -> bool:
         ...
 
-    def __ge__(self, other: 'DateTimeLike') -> bool:
+    def __ge__(self, other: datetime_t) -> bool:
         ...
 
     def __add__(self, other: timedelta) -> Self:
         ...
 
-    def __sub__(self, other: timedelta | 'DateTimeLike') -> Self:
+    # EXCLUDED_FROM_PROTOCOL: DateTimeLike.__sub__
+    # pendulum returns custom subclasses which is fine (as long as they follow Liskov substitution principle),
+    # but typing should be as follows:
+    #
+    # @overload
+    # def __sub__(self, x: datetime_t, /) -> timedelta:
+    #     ...
+    #
+    # @overload
+    # def __sub__(self, x: timedelta, /) -> datetime_t:
+    #     ...
+
+    def date(self) -> DateLike:
         ...
 
-    @classmethod
-    def date(cls) -> DateLike:
+    def time(self) -> time_t:
         ...
 
-    @classmethod
-    def time(cls) -> time_t:
-        ...
-
-    @classmethod
-    def timetz(cls) -> time_t:
+    def timetz(self) -> time_t:
         ...
 
     def replace(self,
-                year: int | None = None,
-                month: int | None = None,
-                day: int | None = None,
-                hour: int | None = None,
-                minute: int | None = None,
-                second: int | None = None,
-                microsecond: int | None = None,
+                year: SupportsIndex = None,
+                month: SupportsIndex = None,
+                day: SupportsIndex = None,
+                hour: SupportsIndex = None,
+                minute: SupportsIndex = None,
+                second: SupportsIndex = None,
+                microsecond: SupportsIndex = None,
                 tzinfo: tzinfo_t | None = None,
                 *, fold: int = 0):
         ...
@@ -358,7 +418,7 @@ class DateTimeLike(Protocol):
     def astimezone(self, tz: tzinfo_t | None = None) -> Self:
         ...
 
-    def utcoffset(self) -> int | None:
+    def utcoffset(self) -> timedelta | None:
         ...
 
     def dst(self) -> timedelta | None:
@@ -385,7 +445,7 @@ class DateTimeLike(Protocol):
     def isoweekday(self) -> int:
         ...
 
-    def isocalendar(self) -> IsoCalendarDate:
+    def isocalendar(self) -> 'datetime.IsoCalendarDate':
         ...
 
     def isoformat(self, sep: str = 'T', timespec: str = 'auto') -> str:
@@ -421,13 +481,17 @@ class DateTime(DateTimeLike, Protocol):
         ...
 
     @classmethod
-    def instance(cls, dt: datetime,
+    def instance(cls, dt: datetime_t,
             tz: str | Timezone | FixedTimezone | tzinfo_t | None = UTC,
     ) -> Self:
         ...
 
-    @classmethod
-    def now(cls, tz: str | Timezone | FixedTimezone | tzinfo_t | None = None) -> Self:
+    @overload
+    def now(cls, tz: tzinfo_t | None = None) -> pendulum.DateTime:
+        ...
+
+    @overload
+    def now(cls, tz: str | Timezone | FixedTimezone | None = ...) -> pendulum.DateTime:
         ...
 
     def set(self,
@@ -549,10 +613,10 @@ class DateTime(DateTimeLike, Protocol):
     def to_w3c_string(self) -> str:
         ...
 
-    def closest(self, *dts: datetime.datetime) -> Self:  # type: ignore[override]
+    def closest(self, *dts: datetime_t) -> Self:  # type: ignore[override]
         ...
 
-    def farthest(self, *dts: datetime.datetime) -> Self:  # type: ignore[override]
+    def farthest(self, *dts: datetime_t) -> Self:  # type: ignore[override]
         ...
 
     def is_future(self) -> bool:
@@ -564,10 +628,10 @@ class DateTime(DateTimeLike, Protocol):
     def is_long_year(self) -> bool:
         ...
 
-    def is_same_day(self, dt: DateTimeLike) -> bool:  # type: ignore[override]
+    def is_same_day(self, dt: datetime_t) -> bool:  # type: ignore[override]
         ...
 
-    def is_anniversary(self, dt: DateTimeLike | None = None) -> bool:
+    def is_anniversary(self, dt: datetime_t | None = None) -> bool:
         ...
 
     def add(self,
@@ -594,11 +658,11 @@ class DateTime(DateTimeLike, Protocol):
     ) -> Self:
         ...
 
-    def diff(self, dt: DateTimeLike | None = None, abs: bool = True) -> Interval[DateLike]:
+    def diff(self, dt: datetime_t | None = None, abs: bool = True) -> pendulum.Interval[datetime_t]:
         ...
 
     def diff_for_humans(self,
-        other: DateTimeLike | None = None,
+        other: pendulum.DateTime | None = None,
         absolute: bool = False,
         locale: str | None = None,
     ) -> str:
@@ -625,19 +689,24 @@ class DateTime(DateTimeLike, Protocol):
     def nth_of(self, unit: str, nth: int, day_of_week: WeekDay) -> Self:
         ...
 
-    def average(self, dt: DateTimeLike | None = None) -> Self:
+    def average(self, dt: pendulum.DateTime | None = None) -> Self:
         ...
 
-    def __sub__(self, other: timedelta | DateLike) -> Self | Interval[Self]:
+    @overload
+    def __sub__(self, other: timedelta) -> pendulum.DateTime:
         ...
 
-    def __rsub__(self, other: DateLike) -> Interval[Self]:
+    @overload
+    def __sub__(self, other: pendulum.DateTime) -> pendulum.Interval[datetime_t]:
         ...
 
-    def __add__(self, other: timedelta) -> Self:
+    def __rsub__(self, other: pendulum.DateTime) -> pendulum.Interval[datetime_t]:
         ...
 
-    def __radd__(self, other: timedelta) -> Self:
+    def __add__(self, other: timedelta) -> pendulum.DateTime:
+        ...
+
+    def __radd__(self, other: timedelta) -> pendulum.DateTime:
         ...
 
     @classmethod
@@ -653,7 +722,7 @@ class DateTime(DateTimeLike, Protocol):
         ...
 
     @classmethod
-    def combine(cls, date: DateLike, time: TimeLike, tzinfo: tzinfo_t | None = None) -> Self:
+    def combine(cls, date: date_t, time: time_t, tzinfo: tzinfo_t | None = None) -> Self:
         ...
 
     def astimezone(self, tz: tzinfo_t | None = None) -> Self:
@@ -674,13 +743,14 @@ class DateTime(DateTimeLike, Protocol):
 
 
 class TimeDeltaLike(Protocol):
+    """Protocol for datetime.timedelta"""
     min: ClassVar['TimeDeltaLike']
     max: ClassVar['TimeDeltaLike']
     resolution: ClassVar['TimeDeltaLike']
 
-    days: int
-    seconds: int
-    microseconds: int
+    days: int          # Between -999,999,999 and 999,999,999 inclusive.
+    seconds: int       # Between 0 and 86,399 inclusive.
+    microseconds: int  # Between 0 and 999,999 inclusive.
 
     def __eq__(self, other: 'TimeDeltaLike') -> bool:
         ...
@@ -688,7 +758,112 @@ class TimeDeltaLike(Protocol):
     def __ne__(self, other: 'TimeDeltaLike') -> bool:
         ...
 
-    # TODO: add arithmetics as per docs
+    # NOTE: following are timedelta arithmetics, as per docs
+
+    # t1 = t2 + t3
+    # Sum of t2 and t3. Afterwards t1 - t2 == t3 and t1 - t3 == t2 are true. (1)
+    # 1. This is exact but may overflow.
+    def __add__(self, other: Self) -> Self:
+        ...
+
+    # t1 = t2 - t3
+    # Difference of t2 and t3. Afterwards t1 == t2 - t3 and t2 == t1 + t3 are true. (1)(6)
+    #
+    # 1. This is exact but may overflow.
+    # 6. The expression t2 - t3 will always be equal to the expression t2 + (-t3) except when t3 is equal to
+    # timedelta.max; in that case the former will produce a result while the latter will overflow.
+    def __sub__(self, other: Self) -> Self:
+        ...
+
+    # t1 = t2 * i
+    # Delta multiplied by an integer. Afterwards t1 // i == t2 is true, provided i != 0.
+    # In general, t1  * i == t1 * (i-1) + t1 is true. (1)
+    #
+    # t1 = t2 * f
+    # Delta multiplied by a float.
+    # The result is rounded to the nearest multiple of timedelta.resolution using round-half-to-even.
+    #
+    # 1. This is exact but may overflow.
+    def __mul__(self, other: int | float) -> Self:
+        ...
+
+    # t1 = i * t2
+    # Delta multiplied by an integer. Afterwards t1 // i == t2 is true, provided i != 0.
+    # In general, t1  * i == t1 * (i-1) + t1 is true. (1)
+    #
+    # t1 = f * t2
+    # Delta multiplied by a float.
+    # The result is rounded to the nearest multiple of timedelta.resolution using round-half-to-even.
+    #
+    # 1. This is exact but may overflow.
+    def __rmul__(self, other: int | float) -> Self:
+        ...
+
+    # f = t2 / t3
+    # Division (3) of overall duration t2 by interval unit t3. Returns a float object.
+    #
+    # t1 = t2 / f or t1 = t2 / i
+    # Delta divided by a float or an int.
+    # The result is rounded to the nearest multiple of timedelta.resolution using round-half-to-even.
+    #
+    # 3. Division by zero raises ZeroDivisionError.
+    def __truediv__(self, other: Self | float | int) -> float:
+        ...
+
+    # t1 = t2 // i or t1 = t2 // t3
+    # The floor is computed and the remainder (if any) is thrown away. In the second case, an integer is returned. (3)
+    #
+    # 3. Division by zero raises ZeroDivisionError.
+    def __floordiv__(self, other: Self | int) -> int | Self:
+        ...
+
+    # t1 = t2 % t3
+    # The remainder is computed as a timedelta object. (3)
+    #
+    # 3. Division by zero raises ZeroDivisionError.
+    def __mod__(self, other: Self) -> Self:
+        ...
+
+    # q, r = divmod(t1, t2)
+    # Computes the quotient and the remainder:
+    # q = t1 // t2 (3) and r = t1 % t2. q is an integer and r is a timedelta object.
+    def __divmod__(self, other: Self) -> tuple[int, Self]:
+        ...
+
+    # +t1
+    # Returns a timedelta object with the same value. (2)
+
+
+    # -t1
+    # Equivalent to timedelta(-t1.days, -t1.seconds, -t1.microseconds), and to t1 * -1. (1)(4)
+    #
+    # 1. This is exact but may overflow.
+    # 4. -timedelta.max is not representable as a timedelta object.
+    def __neg__(self) -> Self:
+        ...
+
+    # abs(t)
+    # Equivalent to +t when t.days >= 0, and to -t when t.days < 0. (2)
+    #
+    # 2. This is exact and cannot overflow.
+    def __abs__(self) -> Self:
+        ...
+
+    # Returns a string in the form [D day[s], ][H]H:MM:SS[.UUUUUU], where D is negative for negative t. (5)
+    #
+    # 5. String representations of timedelta objects are normalized similarly to their internal representation.
+    # This leads to somewhat unusual results for negative timedeltas. For example:
+    #
+    # >>> timedelta(hours=-5)
+    # datetime.timedelta(days=-1, seconds=68400)
+    # >>> print(_)
+    # -1 day, 19:00:00
+    def __str__(self) -> str:
+        ...
+
+    # Returns a string representation of the timedelta object as a constructor call with canonical attribute values.
+    def __repr__(self) -> str:
+        ...
 
     def total_seconds(self) -> float:
         ...
@@ -742,10 +917,6 @@ class Duration(TimeDeltaLike, Protocol):
 
     @property
     def minutes(self) -> int:
-        ...
-
-    @property
-    def seconds(self) -> int:
         ...
 
     @property

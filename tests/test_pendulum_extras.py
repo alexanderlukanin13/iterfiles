@@ -37,17 +37,17 @@ def test_date_with_zone():
     assert d == date(2026, 3, 24)
     assert d.tzinfo is tzinfo_local
 
-    with pytest.warns(DateWithZoneWarning, match='.+fromisoformat returns naive date'):
+    with pytest.warns(DateWithZoneWarning, match='.+fromisoformat returns date in UTC'):
         d = DateWithZone.fromisoformat('2026-03-24')
-        assert type(d) is Date
+        assert type(d) is DateWithZone
         assert d == date(2026, 3, 24)
 
     # toordinal, fromordinal
     with pytest.warns(DateWithZoneWarning, match='.+toordinal strips the timezone information and returns plain int'):
         assert DateWithZone(1, 1, 1, tzinfo_paris).toordinal() == 1
-    with pytest.warns(DateWithZoneWarning, match='.+fromordinal strips the timezone information and returns naive date'):
+    with pytest.warns(DateWithZoneWarning, match='.+fromordinal returns date in UTC'):
         d = DateWithZone.fromordinal(1)
-        assert type(d) is Date  # sic!
+        assert type(d) is DateWithZone
         assert d == date(1, 1, 1)
 
     # isoformat, fromisoformat

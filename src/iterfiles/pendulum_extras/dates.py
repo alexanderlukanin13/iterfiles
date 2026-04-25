@@ -1,6 +1,8 @@
 import abc
+import sys
 import warnings
-from datetime import timedelta, tzinfo as tzinfo_t, date, datetime
+import datetime
+from datetime import timedelta, tzinfo as tzinfo_t, date, datetime as datetime_t
 from typing import Self, NoReturn, overload, SupportsIndex
 
 import pendulum
@@ -73,7 +75,7 @@ class DateWithZone(Date):
     Fully compatible with naive date and can substitute ``datetime.date`` in all contexts,
     with one exception:
 
-    >>>
+    >>> TODO
 
     Issues warnings when non-timezone-aware operations are performed.
     """
@@ -124,16 +126,17 @@ class DateWithZone(Date):
         return cls(dt.year, dt.month, dt.day, tzinfo=dt.tzinfo)
 
     @classmethod
-    def fromordinal(cls, n: int) -> Date:
+    def fromordinal(cls, n: int) -> Self:
         """
         Return the date corresponding to the proleptic Gregorian ordinal,
-        where January 1 of year 1 has ordinal 1. Timezone is ignored.
+        where January 1 of year 1 has ordinal 1. Timezone is UTC.
         """
         warnings.warn(
-            f'{cls.__qualname__}.fromordinal strips the timezone information and returns naive date. '
+            f'{cls.__qualname__}.fromordinal returns date in UTC. '
             'Timezone-aware date classes in pendulum_extras do not support proleptic Gregorian calendar '
             'in any meaningful way, please stick to naive dates for that purpose.', DateWithZoneProlepticWarning)
-        return Date.fromordinal(n)
+        d = Date.fromordinal(n)
+        return cls(d.year, d.month, d.day, pendulum.UTC)
 
     def toordinal(self) -> int:
         warnings.warn(
@@ -153,16 +156,17 @@ class DateWithZone(Date):
         return date.isoformat(self)
 
     @classmethod
-    def fromisoformat(cls, date_string: str) -> Date:
+    def fromisoformat(cls, date_string: str) -> Self:
         warnings.warn(
-            f'{cls.__qualname__}.fromisoformat returns naive date. '
+            f'{cls.__qualname__}.fromisoformat returns date in UTC. '
             'Timezone-aware date classes in pendulum_extras do not support ISO 8601 format, '
             'because date+timezone is forbidden in ISO 8601. '
             'Please stick to naive dates for that purpose, or use pendulum_extras parsing functions.',
             DateWithZoneISOFormatWarning)
-        return Date.fromisoformat(date_string)
+        d = Date.fromisoformat(date_string)
+        return cls(d.year, d.month, d.day, pendulum.UTC)
 
-    def isocalendar(self):
+    def isocalendar(self) -> 'datetime.IsoCalendarDate':
         warnings.warn(
             f'{self.__class__.__qualname__}.isocalendar strips the timezone information and returns naive IsoCalendarDate. '
             'Timezone-aware date classes in pendulum_extras do not support isocalendar in any meaningful way, '
@@ -170,26 +174,27 @@ class DateWithZone(Date):
         return date.isocalendar(self)
 
     @classmethod
-    def fromisocalendar(cls, year: int, week: int, day: int) -> date:
+    def fromisocalendar(cls, year: int, week: int, day: int) -> Self:
         warnings.warn(
-            f'{cls.__qualname__}.fromisocalendar returns naive date. '
+            f'{cls.__qualname__}.fromisocalendar returns date in UTC. '
             'Timezone-aware date classes in pendulum_extras do not support fromisocalendar in any meaningful way, '
             'please stick to naive dates for that purpose.', DateWithZoneWarning)
-        return date.fromisocalendar(year, week, day)
+        d = date.fromisocalendar(year, week, day)
+        return cls(d.year, d.month, d.day, pendulum.UTC)
 
     def replace(self, year: IndexOrNone = None, month: IndexOrNone = None, day: IndexOrNone = None,
                 tzinfo: tzinfo_t | None = None) -> Self:
-        """"""
         return self.__class__(year or self.year, month or self.month, day or self.day, tzinfo or self.tzinfo)
 
-    # NOTE: only supported in Python 3.14
-    @classmethod
-    def strptime(cls, date_string: str, fmt: str) -> date:
-        warnings.warn(
-            f'{cls.__qualname__}.strptime returns naive date. '
-            'Timezone-aware date classes in pendulum_extras do not support strptime in any meaningful way, '
-            'please stick to naive dates for that purpose.', DateWithZoneWarning)
-        return date.strptime(date_string, fmt)  # noqa
+    if sys.version_info >= (3, 14):
+        @classmethod
+        def strptime(cls, date_string: str, fmt: str) -> Self:
+            warnings.warn(
+                f'{cls.__qualname__}.strptime returns date in UTC. '
+                'Timezone-aware date classes in pendulum_extras do not support strptime in any meaningful way, '
+                'please stick to naive dates for that purpose.', DateWithZoneWarning)
+            d = date.strptime(date_string, fmt)  # noqa
+            return cls(d.year, d.month, d.day, pendulum.UTC)
 
     # ==========================================================
     # SECTION 2: overriding pendulum.Date methods and properties
@@ -257,32 +262,29 @@ class DateWithZone(Date):
     def __sub__(self, __delta: timedelta) -> Self: ...
 
     @overload
-    def __sub__(self, __dt: datetime) -> NoReturn: ...
+    def __sub__(self, __dt: datetime_t) -> NoReturn: ...
 
     @overload
-    def __sub__(self, __dt: Self) -> Interval[Date]: ...
+    def __sub__(self, __dt: Date) -> Interval[Date]: ...
 
-    def __sub__(self, other: timedelta | date) -> Self | Interval[Date]:
+    def __sub__(self, other: timedelta | datetime_t | Self) -> Self | Interval[Date]:
         if isinstance(other, timedelta):
             return self._subtract_timedelta(other)
-        if not isinstance(other, date) or isinstance(other, datetime):  # fixes bug in pendulum 3.2.0
+        if not isinstance(other, date) or isinstance(other, datetime_t):  # fixes bug in pendulum 3.2.0
             return NotImplemented
-        raise TypeError('Subtracting ')
         dt = self.__class__(other.year, other.month, other.day)
         return dt.diff(self, False)
 
-    def diff(self, dt: date | None = None, abs: bool = True) -> Interval[Date]:
+    def diff(self, d: date | None = None, abs: bool = True) -> Interval[Date]:
         """
         Returns the difference between two Date objects as an Interval[Date].
 
-        :param dt: The date to compare to (defaults to today)
+        :param d: The date to compare to (defaults to today)
         :param abs: Whether to return an absolute interval or not
         """
-        if dt is None:
-            dt = self.today()
-
-
-        return Interval(self, Date(dt.year, dt.month, dt.day), absolute=abs)
+        if d is None:
+            d = self.today()
+        return Interval(self, Date(d.year, d.month, d.day), absolute=abs)
 
     # ===================================
     # SECTION 3: DateWithZone new methods
@@ -291,11 +293,11 @@ class DateWithZone(Date):
     def naive(self) -> Date:
         return Date(self.year, self.month, self.day)
 
-    @staticmethod
-    def from_datetime(dt: datetime) -> 'DateWithZone':
+    @classmethod
+    def from_datetime(cls, dt: datetime_t) -> Self:
         if dt.tzinfo is None:
             raise ValueError("Can't create DateWithZone from naive datetime")
-        return DateWithZone(dt.year, dt.month, dt.day, dt.tzinfo)
+        return cls(dt.year, dt.month, dt.day, dt.tzinfo)
 
     def petformat(self):
         """
@@ -346,7 +348,7 @@ class DateWithUnit(DateWithZone, abc.ABC):
 
     @staticmethod
     @abc.abstractmethod
-    def from_datetime(dt: datetime) -> 'DateWithUnit':
+    def from_datetime(dt: datetime_t) -> 'DateWithUnit':
         raise NotImplementedError  # pragma: no cover
 
     def to_date_interval(self) -> pendulum.Interval['DateDay']:
@@ -365,7 +367,7 @@ class DateYear(DateWithUnit):
     unit = 'year'
 
     @staticmethod
-    def from_datetime(dt: datetime) -> DateWithUnit:
+    def from_datetime(dt: datetime_t) -> DateWithUnit:
         if dt.tzinfo is None:
             raise ValueError("Can't create DateYear from naive datetime")
         return DateYear(dt.year, 1, 1, dt.tzinfo)
@@ -374,7 +376,7 @@ class DateMonth(DateWithUnit):
     unit = 'month'
 
     @staticmethod
-    def from_datetime(dt: datetime) -> DateWithUnit:
+    def from_datetime(dt: datetime_t) -> DateWithUnit:
         if dt.tzinfo is None:
             raise ValueError("Can't create DateMonth from naive datetime")
         return DateMonth(dt.year, dt.month, 1, dt.tzinfo)
@@ -383,7 +385,7 @@ class DateWeek(DateWithUnit):
     unit = 'week'
 
     @staticmethod
-    def from_datetime(dt: datetime) -> DateWithUnit:
+    def from_datetime(dt: datetime_t) -> DateWithUnit:
         if dt.tzinfo is None:
             raise ValueError("Can't create DateWeek from naive datetime")
         dt = dt - timedelta(days=dt.weekday())
@@ -393,7 +395,7 @@ class DateDay(DateWithUnit):
     unit = 'day'
 
     @staticmethod
-    def from_datetime(dt: datetime) -> DateWithUnit:
+    def from_datetime(dt: datetime_t) -> DateWithUnit:
         if dt.tzinfo is None:
             raise ValueError("Can't create DateDay from naive datetime")
         return DateDay(dt.year, dt.month, dt.day, dt.tzinfo)
