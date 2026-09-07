@@ -17,6 +17,14 @@ def run_once(func):
     return wrapper
 
 
+class classproperty[T]:  # noqa
+    def __init__(self, func):
+        self.fget = func
+
+    def __get__(self, instance, owner) -> T:
+        return self.fget(owner)
+
+
 # Regular expressions belong here
 class _MATCH:
     tz_offset_with_colon = re.compile(r'[+-]\d{2}:\d{2}').fullmatch

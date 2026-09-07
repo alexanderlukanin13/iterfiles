@@ -1,16 +1,20 @@
 # pendulum_extras.dates_strict has (mostly) the same structural interface as dates,
 # but is strictly incompatible with naive dates
+import abc
+import operator
 import sys
 import datetime
+from abc import abstractmethod
 from datetime import date as date_t, datetime as datetime_t, tzinfo as tzinfo_t, timedelta
 from time import struct_time
-from typing import NoReturn, SupportsIndex, ClassVar, Self, overload
+from typing import NoReturn, SupportsIndex, ClassVar, Self, overload, Generic, TypeVar
 
 import pendulum
 from pendulum import Interval
 
 from . import dates, protocol
 from . import _pendulum_date
+from .utils import classproperty
 
 
 class DateWithZoneError(Exception):
@@ -25,15 +29,14 @@ class _NoArg:
 _No = _NoArg()
 
 
-class StrictDate:
-    """
-    Date class that is *not* based on datetime.date,
-    and *not* a superclass of datetime.datetime.
-    """
-    min: ClassVar['StrictDate']
-    max: ClassVar['StrictDate']
-    resolution: ClassVar['timedelta']
+class _StrictDateImpl:
 
+    min: ClassVar['StrictDate']  # strict_date(date_t.min), assigned after class definition
+    max: ClassVar['StrictDate']  # strict_date(date_t.max), assigned after class definition
+    resolution: ClassVar['timedelta'] = date_t.resolution
+
+    # Dumb implementation: just use date as a private field
+    # TODO: rewrite the whole thing in Rust
     _d: date_t
 
     @property
@@ -120,35 +123,7 @@ class StrictDate:
         d = self._d.replace(**kw)
         return self.__class__(d.year, d.month, d.day)
 
-    def __eq__(self, other) -> bool:
-        if isinstance(other, StrictDate):
-            return self._d == other._d
-        return False
 
-    def __ne__(self, other) -> bool:
-        if isinstance(other, StrictDate):
-            return self._d != other._d
-        return True
-
-    def __lt__(self, other) -> bool:
-        if isinstance(other, StrictDate):
-            return self._d < other._d
-        return NotImplemented
-
-    def __le__(self, other) -> bool:
-        if isinstance(other, StrictDate):
-            return self._d <= other._d
-        return NotImplemented
-
-    def __gt__(self, other) -> bool:
-        if isinstance(other, StrictDate):
-            return self._d > other._d
-        return NotImplemented
-
-    def __ge__(self, other) -> bool:
-        if isinstance(other, StrictDate):
-            return self._d >= other._d
-        return NotImplemented
 
     def __add__(self, __value: timedelta) -> Self:
         d = self._d + __value
@@ -185,17 +160,98 @@ class StrictDate:
     def isocalendar(self) -> 'datetime.IsoCalendarDate':
         return self._d.isocalendar()
 
+    # ===========================================
+    # Custom methods
+    # ===========================================
+
+    def to_naive_date(self) -> date_t:
+        return self._d
 
 
-class DateWithZone(dates._DateWithZoneImpl, StrictDate):
+class _CompareMixIn(abc.ABC):
+
+    @abstractmethod
+    def _compare(self, other, op) -> bool | NotImplemented: ...
+
+    def __ne__(self, other) -> bool:
+        return not self.__eq__(other)
+
+    def __lt__(self, other) -> bool:
+        return self._compare(other, operator.lt)
+
+    def __le__(self, other) -> bool:
+        return self._compare(other, operator.le)
+
+    def __gt__(self, other) -> bool:
+        return self._compare(other, operator.gt)
+
+    def __ge__(self, other) -> bool:
+        return self._compare(other, operator.ge)
+
+T = TypeVar("T")
+
+class DateUnitBase(Generic[T], abc.ABC):
+    """Abstract base class for DateUnit classes (both easy and strict)."""
+
+    @abstractmethod
+    def start(self) -> T: ...
+
+    @abstractmethod
+    def end(self) -> T: ...
+
+import pendulum
+pendulum.parse()
+
+
+class StrictDate(_CompareMixIn, _StrictDateImpl):
     """
-    Similar to :py:class:`pendulum_extras.dates.DateWithZone`, but
-    raises exceptions when non-timezone-aware or ambiguous operations are
-    performed.
+    Date class that is *not* based on datetime.date,
+    and *not* a superclass of datetime.datetime.
 
-    Use this class when you intend to never mix timezone-aware dates with
-    naive dates. When typing, consider :py:class:`pendulum_extras.protocol.DateWithZone`
+    1. Compares to datetime.date objects and has the same fields and methods.
+    2. Compares to any date-like objects without tzinfo or with tzinfo=None.
+       (this, by definition, excludes DateWithZone of any kind).
+    3. Never equal, and doesn't compare to datetime.datetime objects.
+    4. Never equal, and doesn't compare to any datetime-like objects
+       (with `hour` etc.).
+    5. Typing: only assignable to itself.
     """
+
+    def __eq__(self, other) -> bool:
+        if isinstance(other, StrictDate):
+            return self._d == other._d
+        elif isinstance(other, date_t):
+            return self._d == other
+        elif hasattr(other, 'year') and not hasattr(other, 'hour') and not getattr(other, 'tzinfo', None):
+            try:
+                return (self.year, self.month, self.day) == (other.year, other.month, other.day)
+            except AttributeError:
+                return False
+        return False
+
+    def _compare(self, other, op) -> bool | NotImplemented:
+        if isinstance(other, StrictDate):
+            return op(self._d, other._d)
+        elif isinstance(other, date_t):
+            return op(self._d, other)
+        elif isinstance(other, DateWithUnit)
+        elif hasattr(other, 'year') and not hasattr(other, 'hour') and not getattr(other, 'tzinfo', None):
+            try:
+                return (self.year, self.month, self.day) < (other.year, other.month, other.day)
+            except AttributeError:
+                return NotImplemented
+        return NotImplemented
+
+
+def strict_date(d: date_t) -> StrictDate:
+    return StrictDate(d.year, d.month, d.day)
+
+
+_StrictDateImpl.min = strict_date(date_t.min)
+_StrictDateImpl.max = strict_date(date_t.max)
+
+
+class _DateWithZoneImpl(_CompareMixIn, dates._DateWithZoneImpl, _StrictDateImpl):
 
     @classmethod
     def _raise(cls, method: str) -> NoReturn:
@@ -236,50 +292,44 @@ class DateWithZone(dates._DateWithZoneImpl, StrictDate):
     def strptime(cls, date_string: str, fmt: str) -> NoReturn:
         cls._raise('strptime')
 
+
+class DateWithZone(_DateWithZoneImpl):
+    """
+    Similar to :py:class:`pendulum_extras.dates.DateWithZone`, but
+    raises exceptions when non-timezone-aware or ambiguous operations are
+    performed.
+
+    Use this class when you intend to never mix timezone-aware dates with
+    naive dates.
+
+    When typing, consider :py:class:`pendulum_extras.protocol.DateWithZone`
+    if you want extra flexibility.
+    """
+
     def __eq__(self, other) -> bool:
-        if not isinstance(other, protocol.DateWithZone):
-            self._raise_compare(other)
-        if self.tzinfo != other.tzinfo:
-            self._raise_compare_tz(other)
-        return (self.year, self.month, self.day) == (other.year, other.month, other.day)
+        # tz-aware date-like, but not datetime
+        if hasattr(other, 'year') and hasattr(other, 'tzinfo') and not hasattr(other, 'hour'):
+            try:
+                if self.tzinfo != other.tzinfo:
+                    return False
+                return (self.year, self.month, self.day) == (other.year, other.month, other.day)
+            except AttributeError:
+                return False
+        return False
 
-    def __ne__(self, other) -> bool:
-        if not isinstance(other, protocol.DateWithZone):
-            self._raise_compare(other)
-        if self.tzinfo != other.tzinfo:
-            self._raise_compare_tz(other)
-        return (self.year, self.month, self.day) != (other.year, other.month, other.day)
-
-    def __lt__(self, other) -> bool:
-        if not isinstance(other, protocol.DateWithZone):
-            self._raise_compare(other)
-        if self.tzinfo != other.tzinfo:
-            self._raise_compare_tz(other)
-        return (self.year, self.month, self.day) < (other.year, other.month, other.day)
-
-    def __le__(self, other) -> bool:
-        if not isinstance(other, protocol.DateWithZone):
-            self._raise_compare(other)
-        if self.tzinfo != other.tzinfo:
-            self._raise_compare_tz(other)
-        return (self.year, self.month, self.day) <= (other.year, other.month, other.day)
-
-    def __gt__(self, other) -> bool:
-        if not isinstance(other, protocol.DateWithZone):
-            self._raise_compare(other)
-        if self.tzinfo != other.tzinfo:
-            self._raise_compare_tz(other)
-        return (self.year, self.month, self.day) > (other.year, other.month, other.day)
-
-    def __ge__(self, other) -> bool:
-        if not isinstance(other, protocol.DateWithZone):
-            self._raise_compare(other)
-        if self.tzinfo != other.tzinfo:
-            self._raise_compare_tz(other)
-        return (self.year, self.month, self.day) >= (other.year, other.month, other.day)
+    def _compare(self, other, op) -> bool | NotImplemented:
+        # tz-aware date-like, but not datetime
+        if hasattr(other, 'year') and hasattr(other, 'tzinfo') and not hasattr(other, 'hour'):
+            try:
+                if self.tzinfo != other.tzinfo:
+                    return NotImplemented
+                return op((self.year, self.month, self.day), (other.year, other.month, other.day))
+            except AttributeError:
+                return NotImplemented
+        return NotImplemented
 
 
-class DateWithUnit(dates._DateWithUnitImpl, DateWithZone):
+class DateWithUnit(dates._DateWithUnitImpl, _DateWithZoneImpl, abc.ABC):
 
     @property
     def start_day(self) -> 'DateDay':
@@ -293,6 +343,31 @@ class DateWithUnit(dates._DateWithUnitImpl, DateWithZone):
 
     def to_date_interval(self) -> pendulum.Interval['DateDay']:
         return Interval(self.start_day, self.end_day)
+
+    def __eq__(self, other) -> bool:
+        # tz-aware date-like, but not datetime
+        if hasattr(other, 'year') and hasattr(other, 'tzinfo') and not hasattr(other, 'hour'):
+            try:
+                if
+                if self.tzinfo != other.tzinfo:
+                    return False
+                return (self.year, self.month, self.day) == (other.year, other.month, other.day)
+            except AttributeError:
+                return False
+        return False
+
+    def _compare(self, other, op) -> bool | NotImplemented:
+        if isinstance(other, DateWithZone):
+            if self.unit != other.unit
+        # tz-aware date-like, but not datetime
+        if hasattr(other, 'year') and hasattr(other, 'tzinfo') and not hasattr(other, 'hour'):
+            try:
+                if self.tzinfo != other.tzinfo:
+                    return NotImplemented
+                return op((self.year, self.month, self.day), (other.year, other.month, other.day))
+            except AttributeError:
+                return NotImplemented
+        return NotImplemented
 
 
 class DateYear(dates._DateYearImpl, DateWithUnit):
