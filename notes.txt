@@ -1,0 +1,103 @@
+dates
+=====
+
+Date.str() is different because
+1.
+2.
+
+
+Why DateWithZone.__str__ is different from pendulum.Date.__str__
+----------------------------------------------------------------
+
+ISO-like '2026-03-24+06:00' or '2026-03-04 +06:00' would be misleading because
+
+    1. It's looks like ISO format, but it's not compliant.
+    2. It looks like object from pendulum or datetime modules, but it's not and user should be aware of that
+
+str(DateWithZone) == '2026-03-24' would also be suboptimal because
+
+    1. It looks like pendulum.Date but user probably wants to distinguish it
+    2. Adding '@' timezone shouldn't break compatibility because no sane implementation relies on parsing str() -
+       it is something that is probably displayed somewhere for a human, and treated semantically like a string,
+       not like a serialized date object.
+
+str(DateWithZone) == '2026-03-24 @ Europe/Paris' is the best choice because it's intuitive, clear, obviously
+not ISO-compliant, and strongly associated with pendulum-extras.
+
+
+Why there are two date modules: pendulum_extras.dates and pendulum_extras.dates_strict
+--------------------------------------------------------------------------------------
+
+There are two basic scenarios for date+timezone:
+
+1. Use interchangeably with datetime.date or pendulum.Date, and pass date objects into APIs accepting these types.
+
+2. Use in your own code designed specifically for date+timezone.
+
+**In the first case,** you want a DateWithZone class 100% compatible with its superclasses.
+
+- pendulum_extras.dates.DateWithZone.method() produces the same result as datetime.date.method() or pendulum.Date.method() for any method.
+
+- DateWithZone(x, y, z, tz) == datetime.date(x, y, z) and vice versa; same for all other comparison operators, and same
+  for pendulum.Date.
+
+In short: pendulum_extras.dates.DateWithZone is a drop-in replacement for pendulum.Date. This follows pendulum ideas
+of being drop-in replacement for objects from standard datetime module.
+
+**In the second case,** when you fully control the code where date+timezone objects are used, or you use API designed
+specifically for date+timezone, you don't need a drop-in replacement. Instead, you want maximum strictness.
+
+- Strictness means not allowing things with questionable/ambiguous semantics, such as comparing timezone-aware date to
+  naive date, making intervals with start/end in different timezone, etc.
+  This should lead to an exception as per "fail early, fail cheap" motto.
+
+
+TODO: formalize pendulum objects API as Protocols
+
+TODO: warning to refrain from date.__sub__(date) - create interval explicitly instead
+
+You can compare strict and non-strict DateWithZone objects.
+
+Make _start_of_day etc. public API
+
+Naive and aware time objects are never equal. Order comparison between naive and aware time objects raises TypeError.
+https://docs.python.org/3/library/datetime.html
+Changed in version 3.3: Equality comparisons between aware and naive time instances don’t raise TypeError.
+
+
+
+@overload
+@classmethod
+def now(cls, tz: datetime.tzinfo | None = None) -> Self: ...
+
+@overload
+@classmethod
+def now(cls, tz: str | Timezone | FixedTimezone | None = None) -> Self: ...
+
+what's the point??
+
+
+
+https://github.com/python/mypy/issues/9015
+from datetime import date, datetime
+if datetime.now() < date.today():
+    print("that's a surprise!")
+
+OK in mypy, actually a bug
+
+
+https://github.com/python/mypy/issues/10067
+
+
+"Be liberal with what you get" principle
+
+
+TODO: use literal for file mode types
+
+
+
+BUG:
+>>> from pendulum import DateTime, timezone
+>>> DateTime(2026,1,1,12,30,tzinfo=timezone('Europe/Paris')).replace(month=2, tzinfo=False)
+DateTime(2026, 2, 1, 12, 30, 0, tzinfo=FixedTimezone(0, name="+00:00"))
+
